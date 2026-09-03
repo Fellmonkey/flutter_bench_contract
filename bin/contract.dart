@@ -22,6 +22,7 @@ import 'dart:io';
 import 'package:flutter_bench_contract/goldens.dart';
 import 'package:flutter_bench_contract/manifest.dart';
 import 'package:flutter_bench_contract/report.dart';
+import 'package:flutter_bench_contract/size.dart';
 
 // ── Package/template root resolution ───────────────────────────────────────
 
@@ -226,8 +227,12 @@ int cmdInit(List<String> args) {
     final templateName = _kScenarioTemplates[id];
     if (templateName == null) {
       if (id == 'size') {
-        stdout.writeln('  size: S7 is not implemented in template v'
-            '$kTemplateVersion yet — skipped');
+        // S7 has no test-template: it is the host size builds (`contract
+        // size`), configured by the manifest `size:` section. It stays a
+        // declared scenario but renders no file.
+        stdout.writeln('  size: host build — declare a `size:` section and '
+            'run `contract size`');
+        declared.add(id);
       } else {
         stdout.writeln('  unknown scenario "$id" — skipped');
       }
@@ -264,6 +269,16 @@ scenarios: [${declared.join(', ')}]
 #   showcaseview:
 #     driver: bench/drivers/scv_driver.dart
 #     driverClass: ScvDriver
+#
+# S7 size (host release builds, no device; run `contract size`):
+#   size:
+#     native:                       # one apk --analyze-size build
+#       package: <pub-package>      # subtree summed in the code-size tree
+#       # entry: lib/main.dart      # app that imports the solution (default)
+#       # arch: x64                 # android ABI (default)
+#     web:                          # two web builds diffed on main.dart.js
+#       # with: lib/main.dart       # structurally identical WITH the solution
+#       without: lib/main_baseline.dart
 ''');
     stdout.writeln('wrote $kManifestFileName (template v$kTemplateVersion)');
   } else {
@@ -313,8 +328,9 @@ int _cmdInitMultiLibrary(String root, bool force, List<String>? scenarios,
       final templateName = _kScenarioTemplates[id];
       if (templateName == null) {
         if (id == 'size') {
-          stdout.writeln('  size: S7 is not implemented in template v'
-              '$kTemplateVersion yet — skipped');
+          // See cmdInit: size is the host build, no per-library test file.
+          stdout.writeln('  size: host build — declare a `size:` section and '
+              'run `contract size`');
         } else {
           stdout.writeln('  unknown scenario "$id" — skipped');
         }
@@ -443,6 +459,11 @@ int cmdVerify(List<String> args) {
     for (final id in manifest.scenarios) {
       final templateName = _kScenarioTemplates[id];
       if (templateName == null) {
+        if (id == 'size') {
+          // S7 has no template file: it is the manifest `size:` section
+          // (verified below), run by `contract size`.
+          continue;
+        }
         stderr.writeln('WARN: scenario "$id" has no template in v'
             '$kTemplateVersion');
         continue;
@@ -452,6 +473,25 @@ int cmdVerify(List<String> args) {
         stderr.writeln('FAIL: missing $file — run "contract init --force"');
         ok = false;
       }
+    }
+  }
+  // size: config shape — a declared native leg needs a package, a web leg
+  // needs both entry targets (the files are the consumer's own app targets,
+  // existence is checked when `contract size` actually builds).
+  final size = manifest.size;
+  if (size != null) {
+    if (size.hasNative && size.nativePackage!.isEmpty) {
+      stderr.writeln('FAIL: size.native needs a package: (the pub package '
+          'whose analyze-size subtree is the native contribution)');
+      ok = false;
+    }
+    if (size.hasWeb && size.webWithout!.isEmpty) {
+      stderr.writeln('FAIL: size.web needs without: (the structurally '
+          'identical app without the solution)');
+      ok = false;
+    }
+    if (!size.hasNative && !size.hasWeb) {
+      stderr.writeln('WARN: `size:` section declares no leg (native or web)');
     }
   }
   stdout.writeln(ok ? 'verify OK (template v${manifest.template})'
@@ -523,8 +563,7 @@ Future<int> cmdRun(List<String> args) async {
       final templateName = _kScenarioTemplates[id];
       if (templateName == null) {
         if (id == 'size') {
-          stdout.writeln('size (S7): host build measurement — not implemented '
-              'in template v$kTemplateVersion; skipped');
+          stdout.writeln('  size: host build — run `contract size` instead');
         }
         continue;
       }
@@ -564,6 +603,233 @@ Future<int> cmdRun(List<String> args) async {
   }
   if (failedEntry) return 1;
   return exitFailures > 0 ? 1 : 0;
+}
+
+// ── size (S7, host builds) ─────────────────────────────────────────────────
+
+/// Runs the S7 size measurement (`contract size`): the release host builds
+/// declared in the manifest's `size:` section, then checks or records the
+/// samples against the golden store. No device, no driver, no test target —
+/// sizes are SDK+ABI-pinned, so the golden ref is `any` by default (the
+/// caller picks the ref: hintful records native under `android` in the
+/// dispatch, bundle_delta under `any` in the bundle CI job).
+///
+/// Exit code: 0 ok / 1 regression or failed build / 2 usage or config.
+Future<int> cmdSize(List<String> args) async {
+  var root = '.';
+  var mode = 'check';
+  var ref = 'any';
+  double slack = 0.05; // size slack-class is hard (5%, spec §6)
+  String? storePath;
+  var legs = 'both'; // native | web | both
+  for (var i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case '--dir':
+        root = args[++i];
+      case '--mode':
+        mode = args[++i];
+      case '--ref':
+        ref = args[++i];
+      case '--slack':
+        slack = double.parse(args[++i]);
+      case '--store':
+        storePath = args[++i];
+      case '--legs':
+        legs = args[++i];
+    }
+  }
+  if (mode != 'check' && mode != 'record') {
+    stderr.writeln('FAIL: --mode must be check|record');
+    return 2;
+  }
+  if (!{'native', 'web', 'both'}.contains(legs)) {
+    stderr.writeln('FAIL: --legs must be native|web|both');
+    return 2;
+  }
+  root = File(root).absolute.path.replaceAll('\\', '/');
+  final manifest = Manifest.load(root);
+  final config = manifest.size;
+  if (config == null || (!config.hasNative && !config.hasWeb)) {
+    stderr.writeln('FAIL: no `size:` section in $root/$kManifestFileName — '
+        'declare the S7 legs (see doc/bench_contract_specs.md §5.8)');
+    return 2;
+  }
+
+  final store = GoldenStore(path: storePath ?? '$root/benchmarks.json');
+  final measured = <String, num>{};
+  var buildFailed = false;
+
+  if (config.hasNative && (legs == 'both' || legs == 'native')) {
+    final bytes = await _measureNativeSize(root, config);
+    if (bytes == null) {
+      buildFailed = true;
+    } else {
+      measured['native_size'] = bytes;
+    }
+  }
+  if (config.hasWeb && (legs == 'both' || legs == 'web')) {
+    final delta = await _measureWebDelta(root, config);
+    if (delta == null) {
+      buildFailed = true;
+    } else {
+      measured['bundle_delta'] = delta;
+    }
+  }
+  if (buildFailed) {
+    stderr.writeln('FAIL: size build failed — see output above');
+    return 1;
+  }
+  if (measured.isEmpty) {
+    stderr.writeln('FAIL: no size leg measured (legs=$legs, declared: '
+        'native=${config.hasNative}, web=${config.hasWeb})');
+    return 1;
+  }
+
+  final keys = measured.keys.toList()..sort();
+  stdout.writeln('samples: $keys (ref=$ref, $mode)');
+  if (mode == 'record') {
+    store.record(measured, ref: ref);
+  } else {
+    final failures = store.check(measured, ref: ref, slack: slack);
+    if (failures > 0) return 1;
+  }
+  return 0;
+}
+
+/// Native leg: one release `flutter build apk --analyze-size` of the app
+/// that imports the solution; the code-size JSON is walked for the
+/// `package:<nativePackage>` node and its subtree bytes summed. Returns the
+/// bytes, or null when the build/analysis failed or the package node is
+/// missing (the app does not import the solution under that name).
+Future<int?> _measureNativeSize(String root, SizeConfig config) async {
+  final arch = config.arch;
+  final entry = config.entry;
+  stdout.writeln('==> size/native: flutter build apk --release --analyze-size '
+      '(--target-platform android-$arch, target $entry)...');
+  final out = await _runCapture('flutter', [
+    'build',
+    'apk',
+    '--release',
+    '--analyze-size',
+    '--target-platform',
+    'android-$arch',
+    '--code-size-directory',
+    'build/size',
+    if (entry != SizeConfig.defaultEntry) '--target=$entry',
+  ], root);
+  if (out.exitCode != 0) {
+    stderr.writeln('FAIL: native size build failed (exit ${out.exitCode})');
+    return null;
+  }
+  final analysisPath = analysisPathFromBuildOutput(out.output);
+  if (analysisPath == null) {
+    stderr.writeln('FAIL: could not find the code-size analysis path in the '
+        'build output');
+    return null;
+  }
+  final jsonText = File(analysisPath).readAsStringSync();
+  final bytes = packageSubtreeBytesFromJson(jsonText, config.nativePackage!);
+  if (bytes == null) {
+    stderr.writeln('FAIL: package:${config.nativePackage} node not found in '
+        'the code-size tree — does the app import the solution under that '
+        'pub package name?');
+    return null;
+  }
+  stdout.writeln('  native_size: package:${config.nativePackage} contributes '
+      '$bytes bytes (AOT, release, android-$arch)');
+  return bytes;
+}
+
+/// Web leg: two release web builds of structurally identical targets (with
+/// and without the solution), diffed on main.dart.js — the solution's
+/// startup-bundle cost. Returns the delta, or null on failure/negative
+/// delta (the baseline must not exceed the engine build).
+Future<int?> _measureWebDelta(String root, SizeConfig config) async {
+  final withEntry = config.webWithEntry;
+  final withoutEntry = config.webWithout!;
+  stdout.writeln('==> size/web: build $withEntry (with) vs $withoutEntry '
+      '(without)...');
+  final withBuild = await _runCapture('flutter', [
+    'build',
+    'web',
+    '--release',
+    '--target=$withEntry',
+    '-o',
+    'build/size_web_with',
+  ], root);
+  if (withBuild.exitCode != 0) {
+    stderr.writeln('FAIL: web build of $withEntry failed '
+        '(exit ${withBuild.exitCode})');
+    return null;
+  }
+  final withoutBuild = await _runCapture('flutter', [
+    'build',
+    'web',
+    '--release',
+    '--target=$withoutEntry',
+    '-o',
+    'build/size_web_without',
+  ], root);
+  if (withoutBuild.exitCode != 0) {
+    stderr.writeln('FAIL: web build of $withoutEntry failed '
+        '(exit ${withoutBuild.exitCode})');
+    return null;
+  }
+  int jsBytes(String dir) {
+    final file = File('$root/$dir/$webMainJsFile');
+    return file.existsSync() ? file.lengthSync() : 0;
+  }
+
+  final engine = jsBytes('build/size_web_with');
+  final baseline = jsBytes('build/size_web_without');
+  if (engine == 0 || baseline == 0) {
+    stderr.writeln('FAIL: main.dart.js missing in one of the size web builds '
+        '(engine=$engine, baseline=$baseline)');
+    return null;
+  }
+  final delta = engine - baseline;
+  stdout.writeln('  main.dart.js: with=$engine, without=$baseline, '
+      'bundle_delta=$delta bytes');
+  if (delta < 0) {
+    stderr.writeln('FAIL: negative delta — the baseline build must not exceed '
+        'the engine build');
+    return null;
+  }
+  return delta;
+}
+
+/// Runs a command, capturing combined stdout+stderr without buffering the
+/// whole build output: keeps every line that carries a code-size analysis
+/// path (the native sentinel can appear anywhere in the stream) plus a
+/// bounded tail for diagnostics.
+Future<({int exitCode, String output})> _runCapture(
+    String executable, List<String> args, String root) async {
+  final proc = await Process.start(
+    executable,
+    args,
+    workingDirectory: root,
+    runInShell: true,
+    includeParentEnvironment: true,
+  );
+  final kept = <String>[];
+  final analysis = RegExp(
+      r'A summary of your [A-Za-z]+ analysis can be found at: .+?\.json');
+  Future<void> pump(Stream<List<int>> stream) async {
+    await for (final chunk in stream.transform(utf8.decoder)) {
+      for (final line in chunk.split('\n')) {
+        if (analysis.hasMatch(line)) {
+          kept.add(line);
+        } else {
+          kept.add(line);
+          if (kept.length > 120) kept.removeAt(0);
+        }
+      }
+    }
+  }
+
+  await Future.wait([pump(proc.stdout), pump(proc.stderr)]);
+  final code = await proc.exitCode;
+  return (exitCode: code, output: kept.join('\n'));
 }
 
 /// Rewrites a generated file's relative imports (the driver api, the
@@ -693,6 +959,10 @@ usage: dart run flutter_bench_contract:contract <command> [options]
            [--dir ROOT] [--device ID] [--mode check|record] [--ref android]
            [--slack 0.3] [--scenarios subset] [--library NAME]
            [--store PATH]
+  size     S7: run the host size builds declared in the manifest `size:`
+           section and check/record their goldens
+           [--dir ROOT] [--mode check|record] [--ref any] [--slack 0.05]
+           [--legs native|web|both] [--store PATH]
   verify   manifest/template/driver consistency
            [--dir ROOT]
 
@@ -708,6 +978,7 @@ Future<void> main(List<String> args) async {
     'init' => cmdInit(args.sublist(1)),
     'verify' => cmdVerify(args.sublist(1)),
     'run' => await cmdRun(args.sublist(1)),
+    'size' => await cmdSize(args.sublist(1)),
     _ => usage(),
   };
   exit(code);

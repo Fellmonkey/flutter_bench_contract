@@ -123,6 +123,39 @@ template: 1
       expect(m.scenarios, hasLength(8));
     });
 
+    test('size section parses into a SizeConfig', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [size]
+size:
+  native:
+    package: my_package
+    entry: lib/main.dart
+    arch: x64
+  web:
+    with: lib/main.dart
+    without: lib/main_baseline.dart
+''');
+      final m = Manifest.load(root);
+      expect(m.size, isNotNull);
+      expect(m.size!.hasNative, isTrue);
+      expect(m.size!.hasWeb, isTrue);
+      expect(m.size!.nativePackage, 'my_package');
+      expect(m.size!.webWithout, 'lib/main_baseline.dart');
+    });
+
+    test('no size section stays null', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+''');
+      expect(Manifest.load(root).size, isNull);
+    });
+
     test('non-int template falls back to the current version', () {
       final root = writeManifest('''
 library: my_package

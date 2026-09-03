@@ -12,3 +12,4 @@ export 'goldens.dart';
 export 'manifest.dart';
 export 'report.dart';
 export 'scene.dart';
+export 'size.dart';

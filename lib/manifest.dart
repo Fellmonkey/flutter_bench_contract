@@ -7,6 +7,8 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
+import 'size.dart';
+
 /// File name of the consumer manifest.
 const String kManifestFileName = 'bench_contract.yaml';
 
@@ -80,6 +82,7 @@ class Manifest {
     this.idleClasses = const [],
     this.libraries = const [],
     this.template = kTemplateVersion,
+    this.size,
   });
 
   /// Solution name (report/README column label).
@@ -126,6 +129,10 @@ class Manifest {
 
   /// Template version the generated files were rendered with.
   final int template;
+
+  /// S7 host-size config (`size:` section); null when the consumer does not
+  /// declare the size scenario.
+  final SizeConfig? size;
 
   /// Loads the manifest from [root] (default: current directory).
   static Manifest load(String root) {
@@ -184,6 +191,7 @@ class Manifest {
       idleClasses: list('idleClasses'),
       libraries: libraries,
       template: doc['template'] is int ? doc['template'] as int : kTemplateVersion,
+      size: SizeConfig.fromYaml(doc['size']),
     );
   }
 }
