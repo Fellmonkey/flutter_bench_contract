@@ -63,5 +63,15 @@ void main() {
     }
     expect(gone, isTrue,
         reason: 'S2: ContractCard($_kState) still present after hide()');
+
+    // Async-teardown settle (methodology): overlay solutions (dialogs,
+    // toasts, popovers) schedule short-lived dismiss timers / delayed
+    // completion callbacks; the test binding fails on pending timers when
+    // the test ends. Pump well past any dismiss animation so the solution's
+    // async teardown completes — the metric was reported above and is
+    // unaffected. (flutter_smart_dialog's own test harness flushes the same
+    // way.)
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
   });
 }

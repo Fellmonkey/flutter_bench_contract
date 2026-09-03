@@ -44,6 +44,10 @@ String sceneRowKey(int index) => 'scene.row.$index';
 /// - [wrapHome]: wraps the whole `MaterialApp.home` — for solutions that
 ///   need a live context / host above the scene (e.g. tcm's context
 ///   capture). Receives the neutral `Scaffold`.
+/// - [navigatorObservers] / [appBuilder]: app-level wiring some solutions
+///   need (dialog/toast hosts mount their overlay through MaterialApp's
+///   `navigatorObservers`/`builder`). Passed through verbatim; the base
+///   scene (S1) must leave them null so it does not touch the solution.
 ///
 /// [withLibrary] selects the with-library vs the base scene; the base scene
 /// (S1) must not touch the solution at all, so the driver must return the
@@ -54,6 +58,8 @@ Widget buildContractScene(
   required Widget Function(int index, Widget row) wrapRow,
   Widget Function(Widget home)? wrapHome,
   ThemeData? theme,
+  List<NavigatorObserver>? navigatorObservers,
+  Widget Function(BuildContext, Widget?)? appBuilder,
 }) {
   Widget neutralRow(int index) => SizedBox(
         key: Key(sceneRowKey(index)),
@@ -89,6 +95,8 @@ Widget buildContractScene(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
           useMaterial3: true,
         ),
+    navigatorObservers: navigatorObservers ?? const [],
+    builder: appBuilder,
     home: wrapHome != null ? wrapHome(scaffold) : scaffold,
   );
 }

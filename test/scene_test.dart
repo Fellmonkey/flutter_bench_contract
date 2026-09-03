@@ -110,4 +110,64 @@ void main() {
     // Element B is findable by its contract key.
     expect(find.byKey(Key(sceneRowKey(kSceneBRow))), findsOneWidget);
   });
+
+  testWidgets('app-level wiring (navigatorObservers/appBuilder) flows to '
+      'the MaterialApp', (tester) async {
+    // Phase-3 hook: dialog/toast solutions (flutter_smart_dialog etc.) mount
+    // their overlay host through MaterialApp's navigatorObservers/builder.
+    // The driver supplies them; the scene passes them through verbatim.
+    final spec = SceneSpec();
+    addTearDown(spec.dispose);
+    final observer = _RecordingObserver();
+    await tester.pumpWidget(
+      buildContractScene(
+        spec,
+        withLibrary: true,
+        wrapRow: (index, row) => row,
+        navigatorObservers: [observer],
+        appBuilder: (context, child) =>
+            ColoredBox(color: const Color(0xFF00FF00), child: child!),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // The builder wrapped the navigator with our host widget (matched by
+    // color — Flutter's Navigator itself uses a transparent ColoredBox).
+    expect(
+      find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color == const Color(0xFF00FF00)),
+      findsOneWidget,
+    );
+    // The observer was attached to the navigator and sees route pushes.
+    expect(observer.pushed, isNotEmpty);
+  });
+
+  testWidgets('app-level wiring is absent when not supplied (base scene)',
+      (tester) async {
+    final spec = SceneSpec();
+    addTearDown(spec.dispose);
+    await tester.pumpWidget(buildContractScene(
+      spec,
+      withLibrary: false,
+      wrapRow: (index, row) => row,
+    ));
+    await tester.pumpAndSettle();
+    // No appBuilder supplied → no green host (the internal transparent
+    // ColoredBox of the Navigator is Flutter's, not the solution's).
+    expect(
+      find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color == const Color(0xFF00FF00)),
+      findsNothing,
+    );
+  });
+}
+
+/// Records the pushes it observes (route change = the observer is attached
+/// to the navigator).
+class _RecordingObserver extends NavigatorObserver {
+  final List<Route<dynamic>> pushed = [];
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushed.add(route);
+  }
 }

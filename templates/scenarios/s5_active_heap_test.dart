@@ -103,5 +103,11 @@ void main() {
               });
 
     await _hideGone(tester, driver, 1);
+
+    // Async-teardown settle (methodology): see S2 — overlay solutions leave
+    // short-lived dismiss timers that must flush before the test ends; the
+    // metric was reported above and is unaffected.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
   });
 }

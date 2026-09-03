@@ -127,5 +127,11 @@ void main() {
             : {'drifts_bytes': drifts});
 
     if (heap != null) await heap.dispose();
+
+    // Async-teardown settle (methodology): see S2 — overlay solutions leave
+    // short-lived dismiss timers that must flush before the test ends; the
+    // metric was reported above and is unaffected.
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
   });
 }
