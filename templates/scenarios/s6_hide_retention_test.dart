@@ -52,7 +52,7 @@ List<String> _fingerprint(WidgetTester tester) {
   final root = tester.binding.rootElement!;
   final out = <String>[];
   void walk(Element e) {
-    out.add('${e.widget.runtimeType}#${e.key ?? ''}');
+    out.add('${e.widget.runtimeType}#${e.widget.key ?? ''}');
     e.visitChildren(walk);
   }
 
@@ -80,7 +80,10 @@ void main() {
     }
     await tester.pumpAndSettle();
 
-    final heap = await VmServiceHeap.connect();
+    // runAsync: Service.getInfo() is an engine call that never completes in
+    // the FakeAsync zone of a plain `flutter test` run (it would hang the
+    // host); real-async contexts (device, integration binding) are unaffected.
+    final heap = await tester.runAsync(VmServiceHeap.connect);
     final base = heap == null ? null : await heap.usedBytesMedian();
 
     // Measured cycles: show → hide → GC → heap sample; drift per cycle

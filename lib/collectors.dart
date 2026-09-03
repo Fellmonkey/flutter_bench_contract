@@ -78,9 +78,17 @@ class VmServiceHeap {
   final String _isolateId;
 
   /// Connects to the VM service of the running isolate, or `null`.
+  ///
+  /// The whole connect is time-boxed: under some plain `flutter test` host
+  /// contexts `Service.getInfo()` never completes (no service to answer), so
+  /// an unguarded await would hang the scenario instead of degrading. On a
+  /// `--no-dds --profile` device run the service answers immediately and the
+  /// timeout never fires.
   static Future<VmServiceHeap?> connect() async {
     try {
-      final info = await developer.Service.getInfo();
+      final info = await developer.Service
+          .getInfo()
+          .timeout(const Duration(seconds: 3));
       final uri = info.serverUri;
       if (uri == null) return null;
       // Same shape integration_test uses in `enableTimeline()`:

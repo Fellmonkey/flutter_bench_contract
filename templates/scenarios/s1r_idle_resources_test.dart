@@ -57,10 +57,15 @@ void main() {
     await tester.pumpWidget(driver.buildScene(withLibrary: true, spec: spec));
     await tester.pumpAndSettle();
 
-    final heap = await VmServiceHeap.connect();
+    // runAsync: Service.getInfo() is an engine call that never completes in
+    // the FakeAsync zone of a plain `flutter test` run (it would hang the
+    // host); real-async contexts (device, integration binding) are unaffected.
+    final heap = await tester.runAsync(VmServiceHeap.connect);
     Map<String, int>? before;
     if (heap != null) {
-      before = {for (final (name, bytes) in await heap.topClasses()): bytes};
+      before = {
+        for (final (name, bytes) in await heap.topClasses()) name: bytes
+      };
     }
 
     // Protocol warm-up (methodology): M show→hide cycles.
@@ -71,7 +76,9 @@ void main() {
     await tester.pumpAndSettle();
 
     if (heap != null) {
-      final after = {for (final (name, bytes) in await heap.topClasses()): bytes};
+      final after = {
+        for (final (name, bytes) in await heap.topClasses()) name: bytes
+      };
       // Diagnostic: classes whose retained bytes grew after the protocol —
       // an undeclared leak must stay visible even before per-class counting.
       final growth = <(String, int)>[

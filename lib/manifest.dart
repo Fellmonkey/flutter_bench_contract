@@ -43,6 +43,32 @@ const List<String> kDefaultScenarios = [
 int runsForScenario(String scenarioId) =>
     scenarioId == 'show_latency' ? 3 : 1;
 
+/// One solution of a multi-library consumer (`libraries:` in the manifest).
+///
+/// Used by head-to-head consumers (e.g. the bench_compare package running
+/// showcaseview + tutorial_coach_mark side by side): every entry gets its
+/// own scenario directory and golden ref, sharing the scenario list.
+class LibraryEntry {
+  const LibraryEntry({
+    required this.name,
+    required this.driver,
+    required this.driverClass,
+    this.ref,
+  });
+
+  /// Solution name (report label, scenario directory name).
+  final String name;
+
+  /// Driver file path, relative to the consumer root.
+  final String driver;
+
+  /// Driver class name.
+  final String driverClass;
+
+  /// Golden ref override (e.g. `android-scv`); null → the CLI's --ref.
+  final String? ref;
+}
+
 /// The consumer manifest.
 class Manifest {
   Manifest({
@@ -52,6 +78,7 @@ class Manifest {
     required this.scenarios,
     this.contractDir = 'bench/contract',
     this.idleClasses = const [],
+    this.libraries = const [],
     this.template = kTemplateVersion,
   });
 
@@ -64,6 +91,27 @@ class Manifest {
 
   /// Driver class name (e.g. `HintfulDriver`).
   final String driverClass;
+
+  /// Solutions of a multi-library consumer; empty for the single-library
+  /// shape (library/driver/driverClass).
+  final List<LibraryEntry> libraries;
+
+  /// The solutions to run: declared libraries, or the single shape.
+  List<LibraryEntry> get entries => libraries.isNotEmpty
+      ? libraries
+      : [
+          LibraryEntry(
+            name: library,
+            driver: driver,
+            driverClass: driverClass,
+          ),
+        ];
+
+  /// Scenario directory of [entry]: the shared [contractDir] for the
+  /// single-library shape, one subdirectory per solution otherwise.
+  String dirFor(LibraryEntry entry) => libraries.isEmpty
+      ? contractDir
+      : '$contractDir/${entry.name}';
 
   /// Declared scenario ids (subset of [kContractScenarioIds]).
   final List<String> scenarios;
@@ -100,6 +148,33 @@ class Manifest {
     List<String> list(String key) =>
         [for (final s in (doc[key] as List? ?? const [])) s as String];
 
+    // Multi-library shape: `libraries: {name: {driver, driverClass, ref?}}`.
+    // When present it fully replaces the single-library fields (which may be
+    // absent); the consumer runs each entry against the same scenario list.
+    final librariesDoc = doc['libraries'];
+    final libraries = <LibraryEntry>[];
+    if (librariesDoc != null) {
+      if (librariesDoc is! YamlMap) {
+        throw FormatException('$kManifestFileName: libraries must be a map '
+            '{name: {driver, driverClass, ref?}}');
+      }
+      for (final entry in librariesDoc.entries) {
+        final name = entry.key as String;
+        final spec = entry.value;
+        if (spec is! YamlMap || spec['driver'] is! String ||
+            spec['driverClass'] is! String) {
+          throw FormatException('$kManifestFileName: libraries.$name needs '
+              'driver + driverClass');
+        }
+        libraries.add(LibraryEntry(
+          name: name,
+          driver: spec['driver'] as String,
+          driverClass: spec['driverClass'] as String,
+          ref: spec['ref'] as String?,
+        ));
+      }
+    }
+
     return Manifest(
       library: str('library'),
       driver: str('driver'),
@@ -107,6 +182,7 @@ class Manifest {
       contractDir: str('contractDir', fallback: 'bench/contract'),
       scenarios: list('scenarios'),
       idleClasses: list('idleClasses'),
+      libraries: libraries,
       template: doc['template'] is int ? doc['template'] as int : kTemplateVersion,
     );
   }

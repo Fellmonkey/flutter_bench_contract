@@ -51,25 +51,9 @@ void main() {
     final spec = SceneSpec();
     addTearDown(spec.dispose);
     // The S4 scenario scrolls the scene programmatically through this
-    // controller — verify it actually drives a ListView it is attached to.
+    // controller — verify it actually drives the neutral scene's ListView.
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ListView(
-            key: const Key(kSceneListKey),
-            controller: spec.listScroll,
-            children: [
-              for (var i = 0; i < kSceneRowCount; i++)
-                SizedBox(
-                  key: Key(sceneRowKey(i)),
-                  height: kSceneRowHeight,
-                  child: Text('Row $i'),
-                ),
-              const SizedBox(height: kSceneScrollMargin),
-            ],
-          ),
-        ),
-      ),
+      buildContractScene(spec, withLibrary: false, wrapRow: (_, row) => row),
     );
     expect(spec.listScroll.hasClients, isTrue);
     final position = spec.listScroll.position;
@@ -85,5 +69,45 @@ void main() {
     position.jumpTo(400);
     await tester.pump();
     expect(position.pixels, 400);
+  });
+
+  testWidgets('neutral scene exposes A (tappable FAB), the list and the rows',
+      (tester) async {
+    final spec = SceneSpec();
+    addTearDown(spec.dispose);
+    await tester.pumpWidget(
+      buildContractScene(spec, withLibrary: false, wrapRow: (_, row) => row),
+    );
+    // Element A is tappable and increments the spec's counter (S6 asserts
+    // the scene is interactive again after hide()).
+    expect(find.byKey(const Key(kSceneAKey)), findsOneWidget);
+    await tester.tap(find.byKey(const Key(kSceneAKey)));
+    await tester.pump();
+    expect(spec.aTaps.value, 1);
+    // The list and element B are findable by the fixed keys.
+    expect(find.byKey(const Key(kSceneListKey)), findsOneWidget);
+    expect(find.byKey(Key(sceneRowKey(kSceneBRow))), findsOneWidget);
+    // wrapRow sees only valid row indices (lazy list: not every row is
+    // built on first layout, but every built row is in range and carries
+    // its contract key).
+    final seen = <int>[];
+    await tester.pumpWidget(
+      buildContractScene(spec,
+          withLibrary: false, wrapRow: (index, row) {
+        seen.add(index);
+        return KeyedSubtree(key: Key('seen.$index'), child: row);
+      }),
+    );
+    expect(seen, isNotEmpty);
+    expect(seen.toSet().containsAll([0, kSceneBRow]), isTrue,
+        reason: 'the top rows and element B are laid out first');
+    // A children-based ListView is lazy: rows outside the (shrinking)
+    // layout estimate are built then discarded, so only the index range is
+    // contractual — every row the builder saw is a valid scene row.
+    for (final index in seen) {
+      expect(index, inInclusiveRange(0, kSceneRowCount - 1));
+    }
+    // Element B is findable by its contract key.
+    expect(find.byKey(Key(sceneRowKey(kSceneBRow))), findsOneWidget);
   });
 }

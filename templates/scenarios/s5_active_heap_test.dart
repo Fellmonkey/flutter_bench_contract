@@ -60,7 +60,10 @@ void main() {
     }
     await tester.pumpAndSettle();
 
-    final heap = await VmServiceHeap.connect();
+    // runAsync: Service.getInfo() is an engine call that never completes in
+    // the FakeAsync zone of a plain `flutter test` run (it would hang the
+    // host); real-async contexts (device, integration binding) are unaffected.
+    final heap = await tester.runAsync(VmServiceHeap.connect);
     int? idleBytes;
     int? activeBytes;
     if (heap != null) {
@@ -69,21 +72,20 @@ void main() {
       await tester.pumpAndSettle();
       idleBytes = await heap.usedBytesMedian(samples: 3);
 
-      // Active point: content shown and stable, GC'd, median of 3.
+      // Active point: content shown and stable, GC'd, median of 3 — and the
+      // delta must measure an actually shown state (S2's assert re-checked).
       await _showStable(tester, driver, 1);
       await tester.pumpAndSettle();
+      expect(driver.currentContent(1).evaluate().isNotEmpty, isTrue,
+          reason: 'S5: content not visible at the active heap point');
       activeBytes = await heap.usedBytesMedian(samples: 3);
 
       await heap.dispose();
     }
 
-    // Assert the content really is shown at the active point (S2's assert
-    // re-checked here — the delta must measure an actually shown state).
-    expect(driver.currentContent(1).evaluate().isNotEmpty, isTrue,
-        reason: 'S5: content not visible at the active heap point');
-
-    final delta =
-        (idleBytes == null || activeBytes == null) ? null : activeBytes! - idleBytes!;
+    final delta = (idleBytes == null || activeBytes == null)
+        ? null
+        : activeBytes - idleBytes;
     if (delta == null) {
       // ignore: avoid_print
       print('S5: no VM service (run with flutter drive --no-dds --profile) '
@@ -92,7 +94,13 @@ void main() {
     reportMetric('active_heap', delta,
         extra: delta == null
             ? const {'status': 'degraded'}
-            : {'idle_bytes': idleBytes, 'active_bytes': activeBytes});
+            : {
+                // delta != null ⇒ both samples exist; ?? 0 keeps the map
+                // literal non-nullable without flow analysis across the
+                // ternary.
+                'idle_bytes': idleBytes ?? 0,
+                'active_bytes': activeBytes ?? 0,
+              });
 
     await _hideGone(tester, driver, 1);
   });

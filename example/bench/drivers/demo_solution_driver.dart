@@ -45,32 +45,21 @@ class DemoSolutionDriver implements LibraryDriver {
   Finder currentContent(int state) =>
       find.byKey(Key(contractCardKey(state)), skipOffstage: false);
 
+  /// The neutral scene (spec §1) — the demo has no anchor rows, but the
+  /// with-library scene mounts the solution's always-on host (a Stack over
+  /// the list: idle renders nothing, an active state renders the measured
+  /// ContractCard at the bottom). The base scene (S1) is untouched.
   @override
   Widget buildScene({required bool withLibrary, required SceneSpec spec}) {
-    final list = ListView(
-      key: const Key(kSceneListKey),
-      controller: spec.listScroll,
-      children: [
-        for (var i = 0; i < kSceneRowCount; i++)
-          SizedBox(
-            key: Key(sceneRowKey(i)),
-            height: kSceneRowHeight,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Row $i'),
-            ),
-          ),
-        const SizedBox(height: kSceneScrollMargin),
-      ],
-    );
-
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Contract scene')),
-        body: withLibrary
-            ? Stack(
+    return buildContractScene(
+      spec,
+      withLibrary: withLibrary,
+      wrapRow: (index, row) => row, // bottom-card solution: no row anchors
+      wrapHome: withLibrary
+          ? (home) => Stack(
+                key: const Key('demo.host'),
                 children: [
-                  list,
+                  home,
                   // The solution's always-on host: idle renders nothing, an
                   // active state renders the measured ContractCard.
                   ValueListenableBuilder<int?>(
@@ -89,13 +78,7 @@ class DemoSolutionDriver implements LibraryDriver {
                   ),
                 ],
               )
-            : list,
-        floatingActionButton: FloatingActionButton(
-          key: const Key(kSceneAKey),
-          onPressed: () => spec.aTaps.value++,
-          child: const Icon(Icons.add),
-        ),
-      ),
+          : null,
     );
   }
 }
