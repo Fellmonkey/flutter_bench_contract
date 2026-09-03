@@ -1,5 +1,9 @@
-// The bench-contract CLI (phase 2): scaffolding a consumer and running the
-// declared scenarios.
+// The bench-contract CLI: scaffolding a consumer and running the declared
+// scenarios, plus the published-results machinery (metrics card PNG and the
+// root-README section) — the generic parts of hintful's original
+// tool/metrics_json.dart + golden card test + tool/render_readme.dart,
+// with the marketing copy moved into the manifest `card:`/`readme:`
+// sections.
 //
 //   init   — generate the consumer contract files from the package templates
 //            (driver API + scenario tests + a driver skeleton when missing)
@@ -8,6 +12,12 @@
 //            on a device, or flutter test on the host when no --device is
 //            given) into build/contract_report.jsonl, then check the
 //            samples against the recorded goldens or record them.
+//   size   — S7: the host size builds (contract size), check/record.
+//   card   — render the manifest `card:` metrics-card PNG from the recorded
+//            goldens (fonts ensured, flutter-test golden render, copy to
+//            the configured output path).
+//   readme — render the manifest `readme:` section into the consumer's
+//            README between the bench markers.
 //   verify — templates/manifest consistency (template version, driver file,
 //            generated scenario files).
 //
@@ -15,12 +25,17 @@
 //   dart run flutter_bench_contract:contract init [--force] [--scenarios a,b]
 //   dart run flutter_bench_contract:contract run [--device <id>]
 //       [--mode check|record] [--ref android] [--slack 0.3] [--scenarios ...]
+//   dart run flutter_bench_contract:contract size [--legs native|web|both] ...
+//   dart run flutter_bench_contract:contract card
+//   dart run flutter_bench_contract:contract readme
 //   dart run flutter_bench_contract:contract verify
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_bench_contract/defs.dart';
 import 'package:flutter_bench_contract/goldens.dart';
 import 'package:flutter_bench_contract/manifest.dart';
+import 'package:flutter_bench_contract/readme.dart';
 import 'package:flutter_bench_contract/report.dart';
 import 'package:flutter_bench_contract/size.dart';
 
@@ -299,6 +314,22 @@ scenarios: [${declared.join(', ')}]
 #       target: bench/startup_to_show_test.dart
 #       ref: android-custom
 #       # runs: 1
+#
+# Published results (marketing copy is yours; machinery is the package's):
+#   card:                         # `contract card` renders the metrics-card
+#     out: build/metrics_card.png #   PNG from the recorded goldens
+#     title: <library> benchmarks — contract
+#     subtitle: profile build · S1–S7 contract scenarios
+#     # note: Methodology ...        # last right tile slot
+#     # legend: ...                  # bottom bar
+#     # subtitles: {metricKey: line} # per-tile marketing line
+#   readme:                       # `contract readme` renders the README
+#     target: ../README.md        #   section between the bench markers
+#     intro: One scene, one solution: ...
+#     columns:                    # table columns = solution → store refs
+#       <library>: {refs: [android, any]}
+#     footnote: '**n/a** = ...'
+#     # image: docs/metrics.png / imageAlt: / stamp: '_Recorded {ts}. ...'
 ''');
     stdout.writeln('wrote $kManifestFileName (template v$kTemplateVersion)');
   } else {
@@ -1035,6 +1066,278 @@ Future<bool> _runDevice(
   return code == 0;
 }
 
+// ── card (published metrics-card PNG) ──────────────────────────────────────
+
+/// Renders the manifest `card:` metrics card: values = the recorded goldens
+/// (rows = the publishable defs with a recorded value, in canonical order),
+/// content = the manifest's marketing copy. The render runs as a generated
+/// flutter-test golden (real Roboto from the SDK's material fonts — nothing
+/// vendored), then the PNG is copied to the manifest's `out:` path.
+///
+/// Exit code: 0 ok / 1 render failed / 2 usage or missing `card:` config.
+Future<int> cmdCard(List<String> args) async {
+  var root = '.';
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--dir') root = args[++i];
+  }
+  root = File(root).absolute.path.replaceAll('\\', '/');
+  final manifest = Manifest.load(root);
+  final card = manifest.card;
+  if (card == null) {
+    stderr.writeln('FAIL: no `card:` section in $root/$kManifestFileName — '
+        'declare the card content (title/subtitle/out) first');
+    return 2;
+  }
+
+  // Rows = publishable defs with a recorded value, in canonical order; the
+  // marketing subtitle per tile comes from the manifest.
+  final store = GoldenStore(path: '$root/benchmarks.json');
+  final values = <String, num>{};
+  final rows = <Map<String, Object?>>[];
+  for (final def in kPublishableMetricDefs) {
+    final value = store.load(def.key);
+    if (value == null) continue;
+    values[def.key] = value;
+    rows.add({
+      'key': def.key,
+      'label': def.label,
+      'unit': def.unit,
+      'subtitle': card.subtitles[def.key],
+    });
+  }
+  if (rows.isEmpty) {
+    stderr.writeln('FAIL: no recorded values in $root/benchmarks.json to '
+        'render — run `contract run --mode record` (and `contract size`) '
+        'on the reference first');
+    return 1;
+  }
+
+  final payload = jsonEncode({
+    'title': card.title,
+    'subtitle': card.subtitle,
+    'note': card.note?.trim(), // YAML block scalars add a trailing newline
+    'legend': card.legend,
+    'rows': rows,
+    'values': values,
+  });
+  final define = base64Encode(utf8.encode(payload));
+
+  // The render is a flutter test (dart:ui needed for text layout + the
+  // golden capture); the harness file is generated next to the build
+  // artifacts, so consumers do not maintain a render test.
+  final renderDir = Directory('$root/build/card_render');
+  renderDir.createSync(recursive: true);
+  final testFile = File('${renderDir.path}/card_render_test.dart');
+  testFile.writeAsStringSync(_cardRenderTestSource);
+
+  await _ensureSdkFonts();
+  stdout.writeln('==> card: flutter test golden render (${rows.length} rows, '
+      'values: ${values.keys.join(', ')})...');
+  final proc = await Process.start(
+    'flutter',
+    [
+      'test',
+      '--update-goldens',
+      '--dart-define=CARD_PAYLOAD=$define',
+      'build/card_render/card_render_test.dart',
+    ],
+    workingDirectory: root,
+    runInShell: true,
+    includeParentEnvironment: true,
+  );
+  final log = StringBuffer();
+  proc.stdout.transform(utf8.decoder).listen(log.write);
+  proc.stderr.transform(utf8.decoder).listen(log.write);
+  final code = await proc.exitCode;
+  if (code != 0) {
+    stderr.writeln('FAIL: card render failed (exit $code) — last log lines:');
+    final lines = log.toString().split('\n');
+    stderr.writeln(lines.length > 60
+        ? lines.sublist(lines.length - 60).join('\n')
+        : log.toString());
+    return 1;
+  }
+
+  final golden = File('${renderDir.path}/card_golden.png');
+  if (!golden.existsSync() || golden.lengthSync() == 0) {
+    stderr.writeln('FAIL: card render produced no PNG at $golden');
+    return 1;
+  }
+  final out = File('$root/${card.out}');
+  out.parent.createSync(recursive: true);
+  golden.copySync(out.path);
+  stdout.writeln('card rendered: ${out.path} '
+      '(${golden.lengthSync()} bytes, ${rows.length} metrics)');
+  return 0;
+}
+
+/// The generated render harness (see [cmdCard]): decodes the payload,
+/// loads the SDK fonts, pumps the generic [MetricsCard] at the landscape
+/// golden size and captures the PNG via matchesGoldenFile.
+const String _cardRenderTestSource = '''
+// Generated by `contract card` — do not edit (regenerate: contract card).
+// Renders the consumer's metrics card (manifest `card:` + recorded goldens)
+// as a golden PNG through flutter test (real Roboto, no device).
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:flutter_bench_contract/metrics_card.dart';
+
+void main() {
+  testWidgets('metrics card golden render', (tester) async {
+    const raw = String.fromEnvironment('CARD_PAYLOAD');
+    if (raw.isEmpty) {
+      throw StateError('CARD_PAYLOAD define missing — run `contract card`');
+    }
+    final Map<String, dynamic> payload =
+        (jsonDecode(utf8.decode(base64Decode(raw))) as Map)
+            .cast<String, dynamic>();
+    final rows = <MetricsCardRow>[
+      for (final r in (payload['rows'] as List).cast<Map<String, dynamic>>())
+        MetricsCardRow(
+          key: r['key'] as String,
+          label: r['label'] as String,
+          unit: r['unit'] as String,
+          subtitle: r['subtitle'] as String?,
+        ),
+    ];
+    final values =
+        (payload['values'] as Map<String, dynamic>).cast<String, num>();
+
+    await loadSdkRobotoFonts();
+
+    tester.view.physicalSize = const Size(2400, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MetricsCard(
+      title: payload['title'] as String,
+      subtitle: payload['subtitle'] as String,
+      rows: rows,
+      values: values,
+      note: payload['note'] as String?,
+      legend: payload['legend'] as String?,
+    ));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await expectLater(
+      find.byType(MetricsCard),
+      matchesGoldenFile('card_golden.png'),
+    );
+  });
+}
+''';
+
+/// Ensures the Flutter SDK's material fonts exist (the flutter tool never
+/// fetches them for `flutter test`, so a fresh SDK has no
+/// material_fonts/) — the same fetch hintful's runner used to curl, now
+/// absorbed into the CLI so every consumer gets it for free.
+Future<void> _ensureSdkFonts() async {
+  final root = await _flutterRoot();
+  final fontsDir = Directory('$root/bin/cache/artifacts/material_fonts');
+  if (!fontsDir.existsSync()) fontsDir.createSync(recursive: true);
+  final hasRegular = fontsDir.listSync().any((e) {
+    if (e is! File) return false;
+    final name = e.uri.pathSegments.last.toLowerCase();
+    return name == 'roboto-regular.ttf' || name == 'roboto-medium.ttf';
+  });
+  if (hasRegular) return;
+
+  final versionFile = File('$root/bin/internal/material_fonts.version');
+  if (!versionFile.existsSync()) {
+    throw StateError('SDK material fonts missing and no '
+        'bin/internal/material_fonts.version to fetch them from — run any '
+        '`flutter` build once, or download the fonts into $fontsDir');
+  }
+  final url =
+      'https://storage.googleapis.com/${versionFile.readAsStringSync().trim()}';
+  stderr.writeln('  (fetching SDK material fonts: $url)');
+  final zipFile = File('${Directory.systemTemp.path}/material_fonts.zip');
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      throw StateError('font fetch failed: HTTP ${response.statusCode}');
+    }
+    final sink = zipFile.openWrite();
+    await response.pipe(sink);
+    await sink.close();
+  } finally {
+    client.close();
+  }
+  final unzip =
+      await Process.run('unzip', ['-oq', zipFile.path, '-d', fontsDir.path]);
+  if (unzip.exitCode != 0) {
+    throw StateError('unzip failed (exit ${unzip.exitCode}): ${unzip.stderr} '
+        '— unzip $zipFile into $fontsDir manually');
+  }
+  stderr.writeln('  (unzipped into $fontsDir)');
+}
+
+/// Flutter SDK root: FLUTTER_ROOT, else resolve `flutter` from PATH and
+/// climb two levels (bin/flutter lives at `<root>/bin/flutter`).
+Future<String> _flutterRoot() async {
+  final env = Platform.environment['FLUTTER_ROOT'];
+  if (env != null && env.isNotEmpty) return env;
+  final pathEnv = Platform.environment['PATH'] ?? '';
+  final exe = Platform.isWindows ? 'flutter.bat' : 'flutter';
+  for (final dir in pathEnv.split(Platform.pathSeparator)) {
+    if (dir.isEmpty) continue;
+    final cand = File('$dir${Platform.pathSeparator}$exe');
+    if (cand.existsSync()) {
+      final resolved = cand.resolveSymbolicLinksSync();
+      return File(resolved).parent.parent.path;
+    }
+  }
+  throw StateError('cannot locate the Flutter SDK: FLUTTER_ROOT unset and '
+      '`flutter` not on PATH');
+}
+
+// ── readme (published README section) ─────────────────────────────────────
+
+/// Renders the manifest `readme:` section into the consumer's README
+/// between the bench markers: table rows from the canonical defs, cells
+/// from the store under each column's refs, prose from the manifest.
+///
+/// Exit code: 0 ok / 1 write failed / 2 usage or missing `readme:` config.
+int cmdReadme(List<String> args) {
+  var root = '.';
+  for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--dir') root = args[++i];
+  }
+  root = File(root).absolute.path.replaceAll('\\', '/');
+  final manifest = Manifest.load(root);
+  final config = manifest.readme;
+  if (config == null) {
+    stderr.writeln('FAIL: no `readme:` section in $root/$kManifestFileName — '
+        'declare the section content (target/intro/columns/footnote) first');
+    return 2;
+  }
+  final store = GoldenStore(path: '$root/benchmarks.json');
+  final section = renderReadmeSection(
+    ReadmeContent(
+      title: config.title,
+      intro: config.intro,
+      columns: config.columns,
+      footnote: config.footnote,
+      image: config.image,
+      imageAlt: config.imageAlt,
+      stamp: config.stamp,
+    ),
+    store: store,
+  );
+  final target = File('$root/${config.target}');
+  final text =
+      target.existsSync() ? target.readAsStringSync() : '';
+  target.writeAsStringSync(replaceReadmeSection(text, section));
+  stdout.writeln('rendered readme section -> ${target.path}');
+  return 0;
+}
+
 int usage() {
   stderr.writeln('''
 usage: dart run flutter_bench_contract:contract <command> [options]
@@ -1051,6 +1354,12 @@ usage: dart run flutter_bench_contract:contract <command> [options]
            section and check/record their goldens
            [--dir ROOT] [--mode check|record] [--ref any] [--slack 0.05]
            [--legs native|web|both] [--store PATH]
+  card     render the metrics-card PNG (manifest `card:` + recorded
+           goldens; fonts ensured, golden render, copy to the `out:` path)
+           [--dir ROOT]
+  readme   render the README section (manifest `readme:` + recorded
+           goldens) between the bench markers in the target README
+           [--dir ROOT]
   verify   manifest/template/driver consistency
            [--dir ROOT]
 
@@ -1067,6 +1376,8 @@ Future<void> main(List<String> args) async {
     'verify' => cmdVerify(args.sublist(1)),
     'run' => await cmdRun(args.sublist(1)),
     'size' => await cmdSize(args.sublist(1)),
+    'card' => await cmdCard(args.sublist(1)),
+    'readme' => cmdReadme(args.sublist(1)),
     _ => usage(),
   };
   exit(code);

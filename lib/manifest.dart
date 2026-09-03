@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
+import 'readme.dart';
 import 'size.dart';
 
 /// File name of the consumer manifest.
@@ -77,8 +78,82 @@ class CustomScenario {
   final int runs;
 }
 
+/// Consumer-owned marketing content of the published metrics card PNG
+/// (manifest `card:`; rendered by `contract card` from the recorded
+/// goldens). The card MACHINERY (layout, value formatting, fonts, render
+/// harness) is the package's — the consumer writes only the copy.
+class CardConfig {
+  const CardConfig({
+    required this.title,
+    required this.subtitle,
+    required this.out,
+    this.note,
+    this.legend,
+    this.subtitles = const {},
+  });
+
+  /// Header title (e.g. `hintful benchmarks — contract`).
+  final String title;
+
+  /// Header subtitle (the run description line).
+  final String subtitle;
+
+  /// PNG output path, relative to the consumer root.
+  final String out;
+
+  /// Methodology note in the last right tile slot.
+  final String? note;
+
+  /// Bottom legend text.
+  final String? legend;
+
+  /// Per-metric marketing line under each tile (metric key → subtitle).
+  final Map<String, String> subtitles;
+}
+
+/// Consumer-owned marketing content of the root-README "Performance"
+/// section (manifest `readme:`; rendered by `contract readme` from the
+/// store). The consumer picks which solutions form the table columns and
+/// writes the prose; the package renders rows/values with the canonical
+/// defs (lib/defs.dart).
+class ReadmeConfig {
+  const ReadmeConfig({
+    required this.target,
+    required this.intro,
+    required this.columns,
+    required this.footnote,
+    this.title = 'Performance',
+    this.image,
+    this.imageAlt,
+    this.stamp,
+  });
+
+  /// README file path, relative to the consumer root.
+  final String target;
+
+  /// Heading text (`## Performance` by default).
+  final String title;
+
+  /// Prose paragraph under the heading.
+  final String intro;
+
+  /// Table columns (solution → golden refs), left to right.
+  final List<ReadmeColumn> columns;
+
+  /// Footnote under the table.
+  final String footnote;
+
+  /// Metrics-card image path, relative to [target]'s file.
+  final String? image;
+
+  /// Markdown alt text of [image].
+  final String? imageAlt;
+
+  /// Stamped line under the image; `{ts}` replaced at render time.
+  final String? stamp;
+}
+
 /// One solution of a multi-library consumer (`libraries:` in the manifest).
-///
 /// Used by head-to-head consumers (e.g. the bench_compare package running
 /// showcaseview + tutorial_coach_mark side by side): every entry gets its
 /// own scenario directory and golden ref, sharing the scenario list.
@@ -116,6 +191,8 @@ class Manifest {
     this.customScenarios = const [],
     this.template = kTemplateVersion,
     this.size,
+    this.card,
+    this.readme,
   });
 
   /// Solution name (report/README column label).
@@ -166,6 +243,14 @@ class Manifest {
   /// S7 host-size config (`size:` section); null when the consumer does not
   /// declare the size scenario.
   final SizeConfig? size;
+
+  /// Marketing content of the metrics card PNG (`card:` section); null
+  /// when the consumer does not publish a card.
+  final CardConfig? card;
+
+  /// Marketing content of the root-README section (`readme:` section); null
+  /// when the consumer does not render one.
+  final ReadmeConfig? readme;
 
   /// Consumer-owned scenarios (`customScenarios:`, Р15): metric ids
   /// `custom.*`, own refs, excluded from rivals and public tables.
@@ -288,6 +373,97 @@ class Manifest {
       customScenarios: customScenarios,
       template: doc['template'] is int ? doc['template'] as int : kTemplateVersion,
       size: SizeConfig.fromYaml(doc['size']),
+      card: _cardFromYaml(doc['card']),
+      readme: _readmeFromYaml(doc['readme']),
+    );
+  }
+
+  /// `card:` section — optional; a malformed section is a hard error (the
+  /// card machinery would silently render consumer garbage otherwise).
+  static CardConfig? _cardFromYaml(Object? cardDoc) {
+    if (cardDoc == null) return null;
+    if (cardDoc is! YamlMap || cardDoc['title'] is! String ||
+        cardDoc['subtitle'] is! String || cardDoc['out'] is! String) {
+      throw FormatException('$kManifestFileName: card: needs title:,\n'
+          'subtitle: and out: (the PNG path, relative to the consumer root)');
+    }
+    String? str(Object? v) => v is String ? v : null;
+    final subtitles = <String, String>{};
+    final subsDoc = cardDoc['subtitles'];
+    if (subsDoc != null) {
+      if (subsDoc is! YamlMap) {
+        throw FormatException('$kManifestFileName: card.subtitles must be a '
+            'map {metricKey: subtitle}');
+      }
+      for (final e in subsDoc.entries) {
+        final key = e.key as String;
+        if (e.value is! String) {
+          throw FormatException('$kManifestFileName: card.subtitles.$key must '
+              'be a string');
+        }
+        subtitles[key] = e.value as String;
+      }
+    }
+    return CardConfig(
+      title: cardDoc['title'] as String,
+      subtitle: cardDoc['subtitle'] as String,
+      out: cardDoc['out'] as String,
+      note: str(cardDoc['note']),
+      legend: str(cardDoc['legend']),
+      subtitles: subtitles,
+    );
+  }
+
+  /// `readme:` section — optional; a malformed section is a hard error.
+  static ReadmeConfig? _readmeFromYaml(Object? readmeDoc) {
+    if (readmeDoc == null) return null;
+    if (readmeDoc is! YamlMap || readmeDoc['target'] is! String ||
+        readmeDoc['intro'] is! String || readmeDoc['footnote'] is! String) {
+      throw FormatException('$kManifestFileName: readme: needs target:,\n'
+          'intro: and footnote: (the section copy); columns: lists the '
+          'table columns {label, refs?, fallbackAny?}');
+    }
+    final columnsDoc = readmeDoc['columns'];
+    if (columnsDoc is! YamlMap || columnsDoc.isEmpty) {
+      throw FormatException('$kManifestFileName: readme.columns must be a '
+          'non-empty map {label: {refs: [...], fallbackAny: bool}}');
+    }
+    final columns = <ReadmeColumn>[];
+    for (final e in columnsDoc.entries) {
+      final label = e.key as String;
+      final spec = e.value;
+      List<String> refs = const ['android', 'any'];
+      var fallbackAny = true;
+      if (spec is YamlMap) {
+        final refsDoc = spec['refs'];
+        if (refsDoc != null) {
+          if (refsDoc is! List || refsDoc.isEmpty ||
+              refsDoc.any((r) => r is! String)) {
+            throw FormatException('$kManifestFileName: readme.columns.$label '
+                'refs must be a non-empty list of strings');
+          }
+          refs = refsDoc.cast<String>();
+        }
+        fallbackAny = spec['fallbackAny'] is bool
+            ? spec['fallbackAny'] as bool
+            : true;
+      }
+      columns.add(ReadmeColumn(
+        label: label,
+        refs: refs,
+        fallbackAny: fallbackAny,
+      ));
+    }
+    String? str(Object? v) => v is String ? v : null;
+    return ReadmeConfig(
+      target: readmeDoc['target'] as String,
+      title: str(readmeDoc['title']) ?? 'Performance',
+      intro: readmeDoc['intro'] as String,
+      columns: columns,
+      footnote: readmeDoc['footnote'] as String,
+      image: str(readmeDoc['image']),
+      imageAlt: str(readmeDoc['imageAlt']),
+      stamp: str(readmeDoc['stamp']),
     );
   }
 }

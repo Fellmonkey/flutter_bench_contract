@@ -8,8 +8,11 @@ library;
 
 export 'card.dart';
 export 'collectors.dart';
+export 'defs.dart';
 export 'goldens.dart';
 export 'manifest.dart';
+export 'metrics_card.dart';
+export 'readme.dart';
 export 'report.dart';
 export 'scene.dart';
 export 'size.dart';

@@ -268,4 +268,155 @@ customScenarios:
       expect(() => Manifest.load(root), throwsFormatException);
     });
   });
+
+  group('card: (published metrics-card PNG content)', () {
+    test('parses a full card section', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero, size]
+card:
+  out: build/screenshots/metrics_card.png
+  title: my_package benchmarks — contract
+  subtitle: profile build · S1–S7 contract scenarios
+  note: |-
+    Methodology: README.md.
+    Regenerate: bench-core workflow, record input.
+  legend: my_package only — see README
+  subtitles:
+    idle_zero: scene with solution vs base
+    bundle_delta: web startup bundle with − without
+''');
+      final c = Manifest.load(root).card!;
+      expect(c.out, 'build/screenshots/metrics_card.png');
+      expect(c.title, contains('benchmarks — contract'));
+      expect(c.subtitle, startsWith('profile build'));
+      expect(c.note, contains('Methodology: README.md.'));
+      expect(c.legend, 'my_package only — see README');
+      expect(c.subtitles['idle_zero'], contains('vs base'));
+      expect(c.subtitles['bundle_delta'], contains('without'));
+    });
+
+    test('absent section stays null', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+''');
+      expect(Manifest.load(root).card, isNull);
+    });
+
+    test('missing out (PNG target) is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+card:
+  title: benchmarks
+  subtitle: profile
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+  });
+
+  group('readme: (published README section content)', () {
+    test('parses a full readme section', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+readme:
+  target: ../README.md
+  intro: One scene, three solutions.
+  footnote: '**n/a** = not applicable.'
+  image: docs/metrics.png
+  imageAlt: benchmark metrics
+  stamp: '_Recorded {ts} UTC. Regenerate: dispatch the workflow.'
+  columns:
+    my_package:
+      refs: [android, any]
+      fallbackAny: true
+    showcaseview:
+      refs: [android-scv]
+      fallbackAny: false
+''');
+      final r = Manifest.load(root).readme!;
+      expect(r.target, '../README.md');
+      expect(r.title, 'Performance');
+      expect(r.intro, 'One scene, three solutions.');
+      expect(r.image, 'docs/metrics.png');
+      expect(r.imageAlt, 'benchmark metrics');
+      expect(r.stamp, contains('{ts}'));
+      expect(r.columns, hasLength(2));
+      expect(r.columns[0].label, 'my_package');
+      expect(r.columns[0].refs, ['android', 'any']);
+      expect(r.columns[0].fallbackAny, isTrue);
+      expect(r.columns[1].label, 'showcaseview');
+      expect(r.columns[1].refs, ['android-scv']);
+      expect(r.columns[1].fallbackAny, isFalse);
+    });
+
+    test('column defaults: refs [android, any], fallbackAny true', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+readme:
+  target: ../README.md
+  intro: One scene.
+  footnote: none
+  columns:
+    my_package: {}
+''');
+      final r = Manifest.load(root).readme!;
+      expect(r.columns.single.label, 'my_package');
+      expect(r.columns.single.refs, ['android', 'any']);
+      expect(r.columns.single.fallbackAny, isTrue);
+    });
+
+    test('absent section stays null', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+''');
+      expect(Manifest.load(root).readme, isNull);
+    });
+
+    test('missing target is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+readme:
+  intro: One scene.
+  footnote: none
+  columns:
+    my_package: {}
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+
+    test('empty columns are rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+readme:
+  target: ../README.md
+  intro: One scene.
+  footnote: none
+  columns: {}
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+  });
 }
