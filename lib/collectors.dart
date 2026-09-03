@@ -17,6 +17,10 @@ import 'package:vm_service/vm_service_io.dart';
 /// One frame's budget at 60 Hz, in microseconds.
 const int kFrameBudgetUs = 16666; // 16.6 ms
 
+/// `getInstances` caps the returned instance refs, never totalCount; the
+/// S1r counter only reads totalCount, so a small limit is enough.
+const int _kInstanceProbeLimit = 100;
+
 /// A window of [FrameTiming]s collected while a benchmark action ran.
 class FrameWindow {
   FrameWindow(this.timings);
@@ -135,6 +139,37 @@ class VmServiceHeap {
     }
     values.sort();
     return values[values.length ~/ 2];
+  }
+
+  /// Live instances of the class named [className] in the test isolate,
+  /// after a forced GC — the S1r `idle_resources` counter (spec §5.2).
+  ///
+  /// Resolves the class by simple name over the isolate's class list and
+  /// sums `getInstances` totalCount across name collisions (two libraries
+  /// declaring the same simple name — the consumer's declared names are
+  /// solution-specific, so collisions are rare; summing keeps the counter
+  /// conservative). The limit caps the returned refs, never totalCount.
+  /// Returns null when the class list or the RPC failed (the caller degrades
+  /// to the diagnostic path instead of reporting a number).
+  Future<int?> instancesOfClass(String className) async {
+    try {
+      await _service.getAllocationProfile(_isolateId, gc: true);
+      final classList = await _service.getClassList(_isolateId);
+      var total = 0;
+      for (final c in classList.classes ?? const <vm_service.ClassRef>[]) {
+        if (c.name == className && c.id != null) {
+          final set = await _service.getInstances(
+            _isolateId,
+            c.id!,
+            _kInstanceProbeLimit,
+          );
+          total += set.totalCount ?? 0;
+        }
+      }
+      return total;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Top retained Dart classes by bytes (after a forced GC) — the "where did

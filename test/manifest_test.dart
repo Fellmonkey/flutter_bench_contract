@@ -167,4 +167,105 @@ template: latest
       expect(Manifest.load(root).template, kTemplateVersion);
     });
   });
+
+  group('customScenarios (Р15)', () {
+    test('parses entries with defaults (ref custom, runs 1)', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+customScenarios:
+  startup_to_show:
+    target: bench/startup_to_show_test.dart
+''');
+      final m = Manifest.load(root);
+      expect(m.customScenarios, hasLength(1));
+      final s = m.customScenarios.single;
+      expect(s.id, 'custom.startup_to_show');
+      expect(s.name, 'startup_to_show');
+      expect(s.target, 'bench/startup_to_show_test.dart');
+      expect(s.ref, 'custom');
+      expect(s.runs, 1);
+    });
+
+    test('round-trips ref and runs', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+customScenarios:
+  drag_reorder:
+    target: bench/custom/drag_reorder_test.dart
+    ref: android-custom
+    runs: 3
+''');
+      final m = Manifest.load(root);
+      final s = m.customScenarios.single;
+      expect(s.id, 'custom.drag_reorder');
+      expect(s.ref, 'android-custom');
+      expect(s.runs, 3);
+    });
+
+    test('absent section is an empty list', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+''');
+      expect(Manifest.load(root).customScenarios, isEmpty);
+    });
+
+    test('key shadowing a contract scenario id is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+customScenarios:
+  idle_zero:
+    target: bench/x_test.dart
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+
+    test('a custom.* id in the contract scenarios list is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [custom.startup_to_show]
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+
+    test('missing target is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+customScenarios:
+  startup_to_show:
+    ref: android-custom
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+
+    test('runs < 1 is rejected', () {
+      final root = writeManifest('''
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero]
+customScenarios:
+  startup_to_show:
+    target: bench/x_test.dart
+    runs: 0
+''');
+      expect(() => Manifest.load(root), throwsFormatException);
+    });
+  });
 }

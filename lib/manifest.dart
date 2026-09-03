@@ -45,6 +45,38 @@ const List<String> kDefaultScenarios = [
 int runsForScenario(String scenarioId) =>
     scenarioId == 'show_latency' ? 3 : 1;
 
+/// One consumer-owned scenario (Р15 `customScenarios:`): the metric id is
+/// `custom.<name>` (package ids are reserved — shadowing a contract scenario
+/// is rejected at load), it has its OWN golden ref, and it is excluded from
+/// rivals comparison and public tables. The consumer writes the test (the
+/// metric definition); the package provides the machinery (run, goldens,
+/// gate) — the test reports `reportMetric('custom.<name>', value)` and the
+/// CLI records/checks it under [ref].
+class CustomScenario {
+  const CustomScenario({
+    required this.id,
+    required this.name,
+    required this.target,
+    this.ref = 'custom',
+    this.runs = 1,
+  });
+
+  /// Full metric/scenario id: `custom.<name>`.
+  final String id;
+
+  /// Short manifest key (`startup_to_show` → id `custom.startup_to_show`).
+  final String name;
+
+  /// Test file path, relative to the consumer root (consumer-authored).
+  final String target;
+
+  /// Golden ref of this scenario (Р15: own ref, e.g. `android-custom`).
+  final String ref;
+
+  /// Repeat count in one `contract run` (median-reduced like contract runs).
+  final int runs;
+}
+
 /// One solution of a multi-library consumer (`libraries:` in the manifest).
 ///
 /// Used by head-to-head consumers (e.g. the bench_compare package running
@@ -81,6 +113,7 @@ class Manifest {
     this.contractDir = 'bench/contract',
     this.idleClasses = const [],
     this.libraries = const [],
+    this.customScenarios = const [],
     this.template = kTemplateVersion,
     this.size,
   });
@@ -134,6 +167,10 @@ class Manifest {
   /// declare the size scenario.
   final SizeConfig? size;
 
+  /// Consumer-owned scenarios (`customScenarios:`, Р15): metric ids
+  /// `custom.*`, own refs, excluded from rivals and public tables.
+  final List<CustomScenario> customScenarios;
+
   /// Loads the manifest from [root] (default: current directory).
   static Manifest load(String root) {
     final file = File('$root/$kManifestFileName');
@@ -182,14 +219,73 @@ class Manifest {
       }
     }
 
+    // Consumer-owned scenarios (Р15): keys are short names, the metric id is
+    // `custom.<key>`; a key colliding with a contract scenario id is
+    // shadowing and rejected (a package scenario cannot be redefined).
+    final customScenarios = <CustomScenario>[];
+    final customDoc = doc['customScenarios'];
+    if (customDoc != null) {
+      if (customDoc is! YamlMap) {
+        throw FormatException('$kManifestFileName: customScenarios must be a '
+            'map {name: {target, ref?, runs?}}');
+      }
+      for (final entry in customDoc.entries) {
+        final name = entry.key as String;
+        if (name.isEmpty || name.startsWith('custom.')) {
+          throw FormatException('$kManifestFileName: customScenarios key '
+              '"$name" must be a short name — the id is custom.<name>');
+        }
+        if (kContractScenarioIds.contains(name)) {
+          throw FormatException('$kManifestFileName: customScenarios key '
+              '"$name" shadows the contract scenario — package scenarios '
+              'cannot be redefined (Р15)');
+        }
+        final spec = entry.value;
+        if (spec is! YamlMap || spec['target'] is! String ||
+            (spec['target'] as String).isEmpty) {
+          throw FormatException('$kManifestFileName: customScenarios.$name '
+              'needs a non-empty target: (the test file path)');
+        }
+        final ref = spec['ref'] as String? ?? 'custom';
+        if (ref.isEmpty) {
+          throw FormatException('$kManifestFileName: customScenarios.$name '
+              'ref must not be empty');
+        }
+        final runs = spec['runs'] is int ? spec['runs'] as int : 1;
+        if (runs < 1) {
+          throw FormatException('$kManifestFileName: customScenarios.$name '
+              'runs must be >= 1');
+        }
+        customScenarios.add(CustomScenario(
+          id: 'custom.$name',
+          name: name,
+          target: spec['target'] as String,
+          ref: ref,
+          runs: runs,
+        ));
+      }
+    }
+
+    // The contract `scenarios:` list holds only contract ids — a `custom.*`
+    // entry there is a shape error (custom scenarios live under
+    // `customScenarios:` and are not per-library).
+    final scenarios = list('scenarios');
+    for (final id in scenarios) {
+      if (id.startsWith('custom.')) {
+        throw FormatException('$kManifestFileName: scenario "$id" belongs '
+            'under customScenarios:, not scenarios:');
+      }
+    }
+
     return Manifest(
       library: str('library'),
       driver: str('driver'),
       driverClass: str('driverClass'),
       contractDir: str('contractDir', fallback: 'bench/contract'),
-      scenarios: list('scenarios'),
+      scenarios: scenarios,
       idleClasses: list('idleClasses'),
       libraries: libraries,
+      customScenarios: customScenarios,
       template: doc['template'] is int ? doc['template'] as int : kTemplateVersion,
       size: SizeConfig.fromYaml(doc['size']),
     );
