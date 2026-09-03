@@ -1,0 +1,27 @@
+name: flutter_bench_contract
+description: >-
+  Performance contract for Flutter overlay/widget solutions: canonical device
+  scenarios (idle cost, show/update latency, scroll coupling, heap retention,
+  size), one-sided golden gate, and published results — as a reusable package.
+publish_to: 'none' # до фазы 4 (план doc/bench_contract_plan.md): убрать перед publish
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Heap measurement (memory scenarios): VM-service RPCs from inside the
+  # test process — the same protocol the DevTools Memory page uses. Pinned
+  # to the SDK's own transitive copy.
+  vm_service: ^15.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

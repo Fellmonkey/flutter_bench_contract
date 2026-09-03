@@ -1,0 +1,16 @@
+# Analyzer configuration for the flutter_bench_contract package.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - .dart_tool/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
