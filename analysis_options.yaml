@@ -5,6 +5,11 @@ analyzer:
   exclude:
     - build/**
     - .dart_tool/**
+    # Templates are rendered sources (tokens like {{driverNew}} are not
+    # valid Dart) — consumers analyze the rendered copies, not the sources.
+    - templates/**
+    # Sub-package consumer (own pubspec, own analysis in example/).
+    - example/**
     - android/**
     - ios/**
     - web/**

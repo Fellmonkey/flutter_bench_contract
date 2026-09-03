@@ -1,0 +1,22 @@
+{
+  "metrics": {
+    "idle_zero": {
+      "unit": "idle_zero",
+      "goldens": {
+        "android": 3
+      }
+    },
+    "show_latency": {
+      "unit": "show_latency",
+      "goldens": {
+        "android": 38
+      }
+    },
+    "update_latency": {
+      "unit": "update_latency",
+      "goldens": {
+        "android": 7
+      }
+    }
+  }
+}

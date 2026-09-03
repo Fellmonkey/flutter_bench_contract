@@ -17,6 +17,8 @@ dependencies:
   # test process — the same protocol the DevTools Memory page uses. Pinned
   # to the SDK's own transitive copy.
   vm_service: ^15.3.0
+  # Consumer manifest (bench_contract.yaml) parsing for the init/run CLI.
+  yaml: ^3.1.2
 
 dev_dependencies:
   flutter_test:

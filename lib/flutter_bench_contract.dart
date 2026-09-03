@@ -6,6 +6,9 @@
 //   goldens.dart    — benchmarks.json store (record/check/read goldens)
 library;
 
+export 'card.dart';
 export 'collectors.dart';
 export 'goldens.dart';
+export 'manifest.dart';
 export 'report.dart';
+export 'scene.dart';

@@ -1,0 +1,26 @@
+name: demo_solution
+description: "Example consumer of flutter_bench_contract: a demo popover-like solution driver running the contract scenarios on the host."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_bench_contract:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # Device runs (`contract run --device ...`) compile an ephemeral target
+  # with the integration_test binding; host runs do not use it.
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
