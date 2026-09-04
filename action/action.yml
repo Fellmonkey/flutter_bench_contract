@@ -61,7 +61,7 @@ runs:
       run: |
         set -euo pipefail
         case "${{ inputs.flutter }}" in
-          3.47) digest="sha256:REPLACE_AFTER_FIRST_BUILD" ;;
+          3.47) digest="sha256:80c1eb3b42b2fddb6249c2d3d2025ea8e2abcce6032220912fe80e39ad9011e9" ;;
           *) echo "::error::No digest pinned for Flutter ${{ inputs.flutter }} — add a row in action.yml (digest from the build-runner run summary)."
              exit 1 ;;
         esac
