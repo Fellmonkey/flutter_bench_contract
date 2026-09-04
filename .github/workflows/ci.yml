@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['*']
+    tags-ignore: ['runner-v*'] # the image build has its own workflow
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Analyze + unit tests for the package itself.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze + test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  example:
+    # The consumer-facing surface — init templates, LibraryDriver, the
+    # generated scenario bridges, the CLI — is exercised by the example
+    # consumer on the host (no device): analyze, the S1–S4 host runs, and
+    # `contract verify` against its manifest.
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Analyze + host scenarios
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test bench
+      - name: Contract verify
+        working-directory: example
+        run: dart run flutter_bench_contract:contract verify
