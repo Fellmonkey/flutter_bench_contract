@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S6 hide_retention (spec §5.7): after hide() the solution (a) does not grow
+// S6 hide_retention: after hide() the solution (a) does not grow
 // the heap per show/hide cycle, (b) returns the tree exactly to the idle
 // snapshot (no hidden mechanics left, precise equality), and (c) leaves the
 // scene interactive — a tap on element A after hide() must land (no hit-test

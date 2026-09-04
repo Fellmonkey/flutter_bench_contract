@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S1r idle_resources (spec §5.2, option `idleClasses:`): live instances of
+// S1r idle_resources (option `idleClasses:`): live instances of
 // the solution's declared classes (controller / registry / listeners /
 // timers) must return to their baseline after warm-up + hide() — a class
 // leak must not hide behind a heap delta.
@@ -113,7 +113,7 @@ void main() {
         return;
       }
       // Per-class deltas after warm-up + hide; the scenario metric is the
-      // max (spec §5.2) and the gate is exact.
+      // max; the gate is exact.
       final deltas = <(String, int)>[
         for (final name in _kIdleClasses)
           (name, (after[name] ?? 0) - (before[name] ?? 0)),

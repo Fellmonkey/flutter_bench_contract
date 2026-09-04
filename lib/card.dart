@@ -1,4 +1,4 @@
-// The measured content of the contract scenarios (spec §2): one card with
+// The measured content of the contract scenarios: one card with
 // two text rows per content state, mounted by the solution's own mechanism
 // (tooltip / toast / dialog / overlay) when `show(state)` is called.
 //
@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 /// presence by this key, no matter how the solution mounted the card.
 String contractCardKey(int state) => 'contract.card.$state';
 
-/// The two content states of the card (spec §2).
+/// The two content states of the card.
 const Map<int, (String, String)> kContractCardContent = {
   1: ('Contract title one', 'Contract description one.'),
   2: ('Contract title two', 'Contract description two.'),
@@ -19,7 +19,7 @@ const Map<int, (String, String)> kContractCardContent = {
 
 /// The content every solution that declares S2–S4 must mount on
 /// `show(state)`. Root carries `Key('contract.card.<state>')` and the
-/// `Semantics(label: 'Contract card')` from spec §2.
+/// `Semantics(label: 'Contract card')` announcement.
 class ContractCard extends StatelessWidget {
   const ContractCard({super.key, required this.state});
 
@@ -46,7 +46,7 @@ class ContractCard extends StatelessWidget {
     // container: true — the card must be its own semantics node: a label
     // on a plain Semantics wrapper is merged into nothing when the children
     // (the two Texts) create their own nodes, so readers would never hear
-    // 'Contract card' (spec §2).
+    // the 'Contract card' label.
     return Semantics(
       container: true,
       label: 'Contract card',

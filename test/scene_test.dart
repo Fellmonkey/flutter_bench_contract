@@ -1,5 +1,5 @@
 // Scene contract (lib/scene.dart) — the neutral scene geometry/keys shared
-// by every scenario (spec §1). The scenario files and the drivers find A, B
+// by every scenario. The scenario files and the drivers find A, B
 // and the list by these constants, so the tests pin them down; SceneSpec
 // additionally carries the per-mount handles the scenarios own.
 import 'package:flutter/material.dart';
@@ -12,9 +12,9 @@ void main() {
     expect(kSceneRowCount, 12);
     expect(kSceneBRow, lessThan(kSceneRowCount));
     expect(kSceneRowHeight, greaterThan(0));
-    // Spec §1: scroll margin >= 1000 px on any target screen. Content extent
+    // Scroll margin >= 1000 px on any target screen. Content extent
     // (12 rows + margin) must exceed that even if the viewport were huge.
-    final contentExtent = kSceneRowCount * kSceneRowHeight + kSceneScrollMargin;
+    const contentExtent = kSceneRowCount * kSceneRowHeight + kSceneScrollMargin;
     expect(kSceneScrollMargin, greaterThanOrEqualTo(1000));
     expect(contentExtent, greaterThan(1000));
   });

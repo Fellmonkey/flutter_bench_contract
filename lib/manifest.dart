@@ -2,7 +2,7 @@
 // init`): which solution, which driver implements it and which scenarios it
 // declares. Protocol values (runs, warm-ups, slack, timeouts) live in the
 // package's methodology, NOT in the manifest — a consumer can pick
-// scenarios but not redefine a metric (spec §7.2).
+// scenarios but never redefine a metric.
 import 'dart:io';
 
 import 'package:yaml/yaml.dart';
@@ -39,14 +39,14 @@ const List<String> kDefaultScenarios = [
   'scroll_coupled',
 ];
 
-/// Runs per scenario in one `contract run` (methodology, spec §6): the noisy
+/// Runs per scenario in one `contract run` (methodology): the noisy
 /// wall-latency metrics repeat and the report reducer takes the median;
 /// heap scenarios already median internally; structural ones are
 /// deterministic.
 int runsForScenario(String scenarioId) =>
     scenarioId == 'show_latency' ? 3 : 1;
 
-/// One consumer-owned scenario (Р15 `customScenarios:`): the metric id is
+/// One consumer-owned scenario (`customScenarios:`): the metric id is
 /// `custom.<name>` (package ids are reserved — shadowing a contract scenario
 /// is rejected at load), it has its OWN golden ref, and it is excluded from
 /// rivals comparison and public tables. The consumer writes the test (the
@@ -71,7 +71,7 @@ class CustomScenario {
   /// Test file path, relative to the consumer root (consumer-authored).
   final String target;
 
-  /// Golden ref of this scenario (Р15: own ref, e.g. `android-custom`).
+  /// Golden ref of this scenario (own ref, e.g. `android-custom`).
   final String ref;
 
   /// Repeat count in one `contract run` (median-reduced like contract runs).
@@ -199,7 +199,7 @@ class Manifest {
   final String library;
 
   /// Driver file path, relative to the consumer root (NOT under `lib/` — the
-  /// driver runs in the flutter_test context, spec §3 / Р8).
+  /// driver runs in the flutter_test context and returns flutter_test types).
   final String driver;
 
   /// Driver class name (e.g. `HintfulDriver`).
@@ -252,7 +252,7 @@ class Manifest {
   /// when the consumer does not render one.
   final ReadmeConfig? readme;
 
-  /// Consumer-owned scenarios (`customScenarios:`, Р15): metric ids
+  /// Consumer-owned scenarios (`customScenarios:`): metric ids
   /// `custom.*`, own refs, excluded from rivals and public tables.
   final List<CustomScenario> customScenarios;
 
@@ -304,7 +304,7 @@ class Manifest {
       }
     }
 
-    // Consumer-owned scenarios (Р15): keys are short names, the metric id is
+    // Consumer-owned scenarios: keys are short names, the metric id is
     // `custom.<key>`; a key colliding with a contract scenario id is
     // shadowing and rejected (a package scenario cannot be redefined).
     final customScenarios = <CustomScenario>[];
@@ -323,7 +323,7 @@ class Manifest {
         if (kContractScenarioIds.contains(name)) {
           throw FormatException('$kManifestFileName: customScenarios key '
               '"$name" shadows the contract scenario — package scenarios '
-              'cannot be redefined (Р15)');
+              'cannot be redefined');
         }
         final spec = entry.value;
         if (spec is! YamlMap || spec['target'] is! String ||

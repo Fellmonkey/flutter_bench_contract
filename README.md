@@ -1,92 +1,226 @@
 # flutter_bench_contract
 
-A performance contract for Flutter widget solutions that live on top of or
-next to an application — tooltips and tours, popovers, toasts, overlays,
-autocomplete layers, scroll-linked content.
+A performance contract for Flutter widget solutions that render on top of or
+next to an application — tooltips, tours, popovers, toasts, overlays,
+autocomplete layers, anything scroll-linked.
 
-It turns “our widget code is fast” into a repeatable, gated claim:
+It makes "our widget code is fast" a repeatable, **gated** claim. You get:
 
-- **Canonical scenarios with assertions** — a scenario asserts that the
-  action really happened (content shown, content following a scrolled
-  target, nothing leaking after hide), so there is nothing to win by doing
-  nothing.
-- **One-sided golden gate** — CI fails only on regressions; honest
-  improvements always pass. Goldens are recorded once per reference
-  hardware/setup.
-- **Reproducible numbers** — every sample is emitted on a machine-readable
-  envelope (`HINTFUL_BENCH_JSON:` lines), duplicates are reduced by the
-  median, and the published number is the same number the gate checked.
+- **Scenario tests that assert the action really happened** — content shown,
+  content following a scrolled target, nothing leaking after `hide()`. There
+  is nothing to win by doing nothing.
+- **A one-sided golden gate** — CI fails only on regressions; improvements
+  always pass. Goldens are recorded once per reference hardware.
+- **One reproducible number per metric** — samples are emitted on a
+  machine-readable envelope, median-reduced, and the number you publish is
+  the number the gate checked.
 
-This repository is the generic core of that contract: measurement
-collectors, the report envelope, and the golden store with its gate CLI. It
-is device-scenario agnostic — solution-specific drivers and scene templates
-plug into it.
+You write one small **driver** (build a neutral scene with your own widgets,
+map `show/update/hide` onto your controller). The package owns the rest:
+scenario procedures, measurement, goldens, the gate, and the published
+metrics card and README table.
+
+## Scenarios
+
+Scenarios are interaction patterns common to any overlay solution — not a
+widget class. Each is optional: your manifest declares the ones that apply,
+but the metric definition is identical for everyone who declares it.
+
+| Id | What it measures | Primary metric | The scenario asserts |
+|---|---|---|---|
+| `idle_zero` (S1) | Idle tax of having the solution in the tree | tree-element diff vs the base scene | the diff itself |
+| `idle_resources` (S1r) | Declared classes (`idleClasses:`) return to baseline after warm-up + `hide()` | per-class instance count (VM service) | == baseline |
+| `show_latency` (S2) | Cold `show()` → first stable, visible content | wall ms, median of 3 runs | content found |
+| `update_latency` (S3) | Content switch on a visible overlay | wall ms, median of 3 transitions | new content visible, old gone |
+| `scroll_coupled` (S4) | Content anchored to element B rides it under scroll | Δcard == ΔB ± 1 px (two-sided) | scroll really passed |
+| `active_heap` (S5) | Retained heap idle → shown | bytes (VM service) | content shown |
+| `hide_retention` (S6) | Heap drift per show/hide cycle, tree back to idle, scene interactive | bytes / tree diff / tap | equality + tap on A lands |
+| `size` (S7) | The solution's cost in the bundle | native analyze-size + web bundle delta | host builds, no device |
+
+Frames are collected as diagnostics, not gate metrics — the primary prices
+are wall-latency and heap. A scenario a solution cannot implement (e.g. no
+scroll anchor) reports `unsupported`, visible in reports and tables, never
+deleted.
+
+## Quick start
+
+```bash
+flutter pub add --dev flutter_bench_contract
+dart run flutter_bench_contract:contract init          # scaffold manifest + scenarios + driver skeleton
+dart run flutter_bench_contract:contract run           # host sanity run, no device
+dart run flutter_bench_contract:contract run \
+    --device emulator-5554 --mode record --ref android # device run, record goldens
+```
+
+`contract run` executes the declared scenarios; `--mode record` writes
+`benchmarks.json`. From then on, CI runs `--mode check` and fails only on
+regressions. `contract verify` checks your generated files are in sync with
+the package's templates.
+
+### The driver — the only code you write
+
+`init` scaffolds `bench/contract/library_driver.dart`; you implement it
+(condensed):
+
+```dart
+class MyDriver implements LibraryDriver {
+  @override
+  String get name => 'my_package';
+
+  /// The neutral contract scene (AppBar + element A + 12 rows with element
+  /// B + scroll margin) with YOUR solution's widgets wired in — the rows
+  /// your solution anchors get wrapped, nothing shown (idle).
+  @override
+  Widget buildScene({required bool withLibrary, required SceneSpec spec}) =>
+      buildContractScene(
+        spec,
+        withLibrary: withLibrary,
+        wrapRow: (index, row) => withLibrary && index == kSceneBRow
+            ? MyTarget(id: sceneRowKey(index), child: row)
+            : row,
+      );
+
+  /// The scenario verbs, mapped onto your controller.
+  @override
+  Future<void> show(int state) async { /* mount content card state */ }
+  @override
+  Future<void> update(int state) async { /* switch content in place */ }
+  @override
+  Future<void> hide() async { /* unmount */ }
+
+  /// "My work on the current step is finished" — NOT an action. The
+  /// scenario owns pumping: it pumps a frame and polls this until the
+  /// timeout. If you pumped yourself, you would control S2/S3's timing.
+  @override
+  bool isStable() => /* state reached + no frame scheduled */;
+
+  /// The visible ContractCard(state) — scenarios assert presence, absence
+  /// and geometry through this finder.
+  @override
+  Finder currentContent(int state) =>
+      find.byKey(Key(contractCardKey(state)), skipOffstage: false);
+
+  /// Whether content follows element B under scroll (S4). Solutions without
+  /// an anchor return false → the scenario reports `unsupported`.
+  @override
+  bool get scrollCoupled => true;
+}
+```
+
+Scene keys and geometry are the package's constants, so your content is
+findable without any solution-specific test code. The manifest
+(`bench_contract.yaml`) is generated with sensible defaults — you edit only
+your parts:
+
+```yaml
+library: my_package
+driver: bench/drivers/my_driver.dart
+driverClass: MyDriver
+scenarios: [idle_zero, idle_resources, show_latency, update_latency,
+            scroll_coupled, active_heap, hide_retention, size]
+idleClasses: [MyController, MyRegistry]   # S1r per-class counting
+```
+
+### CI gate
+
+```yaml
+- uses: actions/checkout@v4
+- name: Performance contract (check)
+  run: dart run flutter_bench_contract:contract run --mode check --ref android
+```
+
+## CLI
+
+`dart run flutter_bench_contract:contract <command>`
+
+| Command | What it does |
+|---|---|
+| `init` | Scaffold `bench_contract.yaml` + `bench/contract/` (driver API, scenario tests, driver skeleton). `--force` regenerates. |
+| `run` | Run the manifest's scenarios and check/record goldens. Host (`flutter test`) without `--device`; `flutter drive --no-dds --profile` with one. Options: `--mode check\|record`, `--ref`, `--slack`, `--scenarios`, `--library`. |
+| `size` | S7 host size builds from the manifest `size:` section. `--legs native\|web\|both`. |
+| `card` | Render the metrics-card PNG from the recorded goldens (manifest `card:`). |
+| `readme` | Render the README section (manifest `readme:`) between its `<!-- bench:start/end -->` markers. |
+| `verify` | Manifest/template/driver consistency. |
+
+Exit codes: `0` ok, `1` regressions or failed build, `2` usage/config error.
+
+## Beyond the basics
+
+**Custom scenarios.** The contract metrics are fixed, but you can add your
+own: declare `customScenarios:` and write the test yourself. The machinery —
+run, goldens, gate — stays the package's, under the id `custom.<name>` with
+its own golden ref, excluded from comparisons and public tables.
+
+```yaml
+customScenarios:
+  startup_to_show:
+    target: bench/startup_to_show_test.dart
+    ref: android-custom
+    runs: 1
+```
+
+**Head-to-head.** One manifest can run several solutions side by side: list
+them under `libraries:` (a driver per solution), and `contract run` executes
+the *same* scenario templates against each with per-solution golden refs.
+The published table gets a column per solution.
+
+## First guarantor: hintful
+
+[hintful](https://pub.dev/packages/hintful) — the tour/tooltip package this
+contract was extracted from — is its first real consumer and the living
+reference implementation: a full manifest (S1–S7 + S1r + a custom scenario),
+a ~110-line driver, device goldens for three solutions (`android`,
+`android-scv`, `android-tcm`) run head-to-head, and published results — the
+metrics card PNG and the Performance table in hintful's README, both
+rendered by `contract card`/`contract readme` from the same goldens the CI
+gate checks. Its `bench-core` workflow is the CI shape to copy.
+
+## Methodology and anti-tuning
+
+- **Scenario definitions are frozen before goldens are recorded.** Changing
+  one is a PR to this package with a checked reason: which number changed
+  and why this is a scenario defect (the scene does not scroll, the action
+  does not happen), not a tuning.
+- **The protocol is one for everyone**: profile build, warm-ups, run
+  counts, medians, slack, timeouts. A consumer cannot pass protocol values
+  in the manifest — it picks scenarios but never redefines a metric.
+- **Goldens are recorded once per reference hardware**; `check` is
+  one-sided (regression only). Correctness asserts (S1, S4, S6) are
+  two-sided and cannot be disabled.
+- **`unsupported` is never hidden** — a scenario a solution cannot
+  implement stays visible in reports and tables.
 
 ## Library layout
 
 | File | What it provides |
 |---|---|
-| `lib/collectors.dart` | Frame-timing windows (`FrameWindow`, `collectFrames`) and VM-service heap probes (`VmServiceHeap`: used-bytes medians after GC, top retained classes). Timings in microseconds; free of `flutter_test`. |
-| `lib/report.dart` | The `HINTFUL_BENCH_JSON:` envelope (`reportMetric`, `parseSample`), the median reducer (`medianOf`), and run-report reading (`ReportFile` → per-metric medians). |
-| `lib/goldens.dart` | The `benchmarks.json` golden store (`GoldenStore`): `record`, one-sided `check`, and `load` for lookups with ref preference. |
-| `bin/check_goldens.dart` | The golden gate CLI (see below). |
+| `lib/collectors.dart` | Frame-timing windows (`FrameWindow`, `collectFrames`) and VM-service heap probes. |
+| `lib/report.dart` | The `HINTFUL_BENCH_JSON:` envelope, the median reducer, run-report reading. Pure Dart. |
+| `lib/goldens.dart` | The `benchmarks.json` golden store: `record`, one-sided `check`, `load`. Pure Dart. |
+| `lib/scene.dart` | The neutral scene (`buildContractScene`, `SceneSpec`) and its key/geometry constants. |
+| `lib/card.dart` | The `ContractCard` content both scenarios and drivers mount by key. |
+| `templates/` | `library_driver.dart` (the driver API) and the S1–S7 scenario tests — copied into the consumer by `init`, versioned, never edited by hand. |
+| `lib/manifest.dart` | The `bench_contract.yaml` model: scenarios, `idleClasses:`, `libraries:`, `customScenarios:`, `size:`/`card:`/`readme:`. |
+| `lib/size.dart` | S7 size-build machinery (analyze-size, web bundle diff). |
+| `lib/defs.dart` | Canonical display metadata (label/unit) and value formatters. Pure Dart. |
+| `lib/metrics_card.dart` | The `MetricsCard` widget rendered by `contract card`. |
+| `lib/readme.dart` | The README-section renderer. Pure Dart. |
+| `bin/contract.dart` | The CLI. |
 
-Pure-Dart layers only: `report.dart` and `goldens.dart` are safe to import
-from plain `dart run` tools; `collectors.dart` needs the Flutter engine.
-
-## Using the golden gate
-
-From any package that depends on `flutter_bench_contract`:
-
-```bash
-dart run flutter_bench_contract:check_goldens build/bench_report.jsonl --check  --ref android
-dart run flutter_bench_contract:check_goldens build/bench_report.jsonl --record --ref android
-```
-
-Every benchmark emits one machine-readable line per sample:
-
-```
-HINTFUL_BENCH_JSON:{"metric":"startup_to_show","value":3}
-```
-
-The CLI reads all samples of a metric from the report and reduces them to
-the median, then either:
-
-- `--record` writes them as goldens for the reference (`benchmarks.json`,
-  keyed per reference setup — different hardware doesn’t cross-compare), or
-- `--check` compares against the recorded goldens: every metric is
-  *lower-is-better*, so only values worse than the golden by more than the
-  slack fail (a missing golden warns instead of failing — run `--record`
-  once per reference to establish it).
-
-Exit codes: `0` ok, `1` regressions found (or no samples in the report),
-`2` usage error. `--slack` sets the relative tolerance per metric
-(default `0.3`).
-
-## Quick API tour
-
-```dart
-// Inside a benchmark test (device/profile runs):
-final window = await collectFrames(() async { /* the action being measured */ });
-reportMetric('frame_step_change', window.avgBuildUs.round()); // FrameWindow
-
-final heap = await VmServiceHeap.connect(); // needs a VM-service run (--no-dds)
-final bytes = await heap?.usedBytesMedian(); // used heap after forced GC
-
-// Reading a run report (anywhere):
-final samples = ReportFile('build/bench_report.jsonl').samples; // per-metric medians
-
-// The golden store (cwd: the package owning benchmarks.json):
-final store = GoldenStore();
-store.record(samples, ref: 'android');           // write goldens
-final regressions = store.check(samples, ref: 'android', slack: 0.3);
-final golden = store.load('startup_to_show');    // prefers 'android', then 'any'
-```
+`report.dart`, `goldens.dart`, `defs.dart`, `readme.dart` and `manifest.dart`
+are pure Dart — safe to import from plain `dart run` tools; `collectors.dart`
+needs the Flutter engine, and the driver/scenario files run under
+`flutter_test`.
 
 ## Development
 
 ```bash
 flutter pub get
 flutter analyze
-flutter test   # device-free self-tests of the report and golden layers
+flutter test   # device-free self-tests of the package
 ```
+
+`example/` is a minimal consumer to copy; `test/` covers the store format,
+median reduction, manifest validation, README/card rendering and scene
+hooks. The full contract run needs an Android emulator (profile build) — see
+hintful's `bench-core` workflow for the CI shape.

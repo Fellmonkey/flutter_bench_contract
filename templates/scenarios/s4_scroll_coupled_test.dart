@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S4 scroll_coupled (spec §5.5): content anchored to element B must ride
+// S4 scroll_coupled: content anchored to element B must ride
 // with B under a programmatic scroll — correctness (two-sided assert) and
 // the actual scroll cost as diagnostics. Solutions without an anchor
 // (toasts/popovers) declare scrollCoupled: false → `unsupported` in the
@@ -24,7 +24,7 @@ void main() {
     final driver = {{driverNew}};
     if (!driver.scrollCoupled) {
       // Unsupported is a visible report entry, not a failure and not a
-      // removal (spec §5.5, §7.3).
+      // removal (a visible report entry).
       reportMetric('scroll_coupled', null,
           extra: {'status': 'unsupported', 'reason': 'no anchor to a target'});
       return;

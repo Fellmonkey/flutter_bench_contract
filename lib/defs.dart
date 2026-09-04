@@ -1,7 +1,8 @@
 // Display metadata of the published contract metrics: the canonical label +
 // unit of every metric that records a number (device S1–S6 rows + host S7
 // size rows). One definition shared by every consumer's card and README
-// table — the methodology is the package's, not the consumer's (spec §7.2).
+// table — the methodology is the package's, not the consumer's: a consumer
+// picks scenarios but never redefines a metric.
 //
 // Pure Dart (no flutter imports): the readme renderer and the card CLI run
 // under the plain VM (`dart run`), which has no dart:ui.

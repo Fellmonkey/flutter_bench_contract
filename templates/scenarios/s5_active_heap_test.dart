@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S5 active_heap (spec §5.6): retained-heap delta "idle → shown" — the
+// S5 active_heap: retained-heap delta "idle → shown" — the
 // price of showing content. Needs the VM service (`flutter drive --no-dds
 // --profile`); under a plain `flutter test` host run the sample degrades to
 // null and only the "content shown" assert runs.

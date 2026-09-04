@@ -1,14 +1,26 @@
 name: flutter_bench_contract
 description: >-
-  Performance contract for Flutter overlay/widget solutions: canonical device
-  scenarios (idle cost, show/update latency, scroll coupling, heap retention,
-  size), one-sided golden gate, and published results — as a reusable package.
-publish_to: 'none' # до фазы 4 (план doc/bench_contract_plan.md): убрать перед publish
+  A performance contract for Flutter overlay/widget solutions: canonical
+  device scenarios (idle cost, show/update latency, scroll coupling, heap
+  retention, size), a one-sided golden gate, and published results — as a
+  reusable package.
 version: 0.1.0
 
+topics:
+  - benchmarking
+  - performance
+  - golden
+  - widget-testing
+
+# Floor: Dart 3.5 (Flutter 3.24) — the widest window that stays honest:
+# vm_service 15.x requires ^3.5.0 (kept on the SDK-aligned 15.x line), and
+# the only newer Flutter API (Color.withValues) was replaced by the
+# non-deprecated withAlpha primitive, so the code itself would even fit
+# 3.19 — but going below 3.5 means an unverifiable old-SDK claim without a
+# CI matrix. Dev tooling (flutter_lints 5, ^3.5.0) matches the floor.
 environment:
-  sdk: '>=3.0.0 <4.0.0'
-  flutter: '>=3.10.0'
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.24.0'
 
 dependencies:
   flutter:
@@ -23,7 +35,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true

@@ -1,5 +1,5 @@
 // The generic renderer of a consumer's published "Performance" README
-// section (plan §6 readme.dart): rows come from the canonical metric defs
+// section: rows come from the canonical metric defs
 // (lib/defs.dart — ONE label/unit per metric, shared by every consumer),
 // values from the golden store, and everything consumer-specific (which
 // solutions form the table columns, the intro/footnote copy, the card
@@ -13,9 +13,9 @@ library;
 import 'defs.dart';
 import 'goldens.dart';
 
-/// README markers delimiting the rendered block (hintful's original
-/// `<!-- bench:start -->` / `<!-- bench:end -->` markers, kept verbatim so
-/// existing READMEs migrate without touching the surrounding prose).
+/// README markers delimiting the rendered block (HTML comments, so the
+/// section stays invisible in rendered markdown and existing sections
+/// migrate without touching the surrounding prose).
 const String kReadmeStart = '<!-- bench:start -->';
 const String kReadmeEnd = '<!-- bench:end -->';
 

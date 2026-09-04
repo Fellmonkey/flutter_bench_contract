@@ -2,8 +2,7 @@
 // file format and gate semantics recorded goldens live in.
 //
 // Goldens are keyed per reference ("android", "web", ...) so runs on
-// different hardware/setups don't cross-compare. The format is unchanged
-// from hintful's original tool/check_goldens.dart (phase-1 extraction):
+// different hardware/setups don't cross-compare. The store format:
 //
 //   {
 //     "metrics": {

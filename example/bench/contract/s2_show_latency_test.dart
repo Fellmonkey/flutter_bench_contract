@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S2 show_latency (spec §5.3): wall ms from `show(1)` to the frame where
+// S2 show_latency: wall ms from `show(1)` to the frame where
 // ContractCard(1) is visible and stable. The show is cold — no show has
 // happened before, so the price is the honest first-show cost (no warm-up).
 // Timing is wall-clock; the scenario owns pumping (the driver cannot smear

@@ -3,23 +3,19 @@
 // and the read side — parsing such lines back out of a run report and
 // reducing a metric's duplicate samples to the median.
 //
-// Every envelope consumer (the golden CLI in bin/, README renderers, the
-// metrics card) reduces duplicates the same way, so the recorded golden,
-// the check and the published numbers always show the median of a metric's
-// runs — never the last (or best) run.
+// Duplicates are reduced the same way everywhere (record, check, publish),
+// so the golden, the gate and the published number always agree.
 import 'dart:convert';
 import 'dart:io';
 
-/// Prefix of every machine-readable sample line: greppable, stable envelope
-/// around the human log lines.
+/// Prefix of every machine-readable sample line.
 const String envelope = 'HINTFUL_BENCH_JSON:';
 
 /// Emits one machine-readable benchmark sample on stdout.
 ///
-/// Format: `HINTFUL_BENCH_JSON:<json>` — greppable, stable envelope around
-/// the human log lines. The golden CLI reads these lines from a report file:
-/// every sample carries `metric` and a nullable `value` (null = could not
-/// measure — the collector skips such samples).
+/// Format: `HINTFUL_BENCH_JSON:<json>`. Every sample carries `metric` and a
+/// nullable `value` (null = could not measure — the collector skips such
+/// samples).
 void reportMetric(String metric, num? value, {Map<String, Object>? extra}) {
   final payload = <String, Object?>{
     'metric': metric,

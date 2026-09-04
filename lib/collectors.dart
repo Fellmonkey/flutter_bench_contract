@@ -1,13 +1,8 @@
 // Measurement collectors of the performance contract: frame-timing windows
 // and VM-service heap probes, shared by every device scenario.
 //
-// Phase-1 extraction from hintful's benchmark_utils.dart (moved verbatim).
-// The report side (reportMetric / HINTFUL_BENCH_JSON envelope, sample
-// parsing, median) now lives in report.dart, the golden store in
-// goldens.dart.
-//
-// Deliberately free of `flutter_test` so the same helpers can later be
-// reused by reporting harnesses. Timings are in microseconds.
+// Deliberately free of `flutter_test` so reporting harnesses can reuse the
+// helpers outside widget tests. Timings are in microseconds.
 import 'dart:developer' as developer;
 
 import 'package:flutter/scheduler.dart';
@@ -142,7 +137,7 @@ class VmServiceHeap {
   }
 
   /// Live instances of the class named [className] in the test isolate,
-  /// after a forced GC — the S1r `idle_resources` counter (spec §5.2).
+  /// after a forced GC — the S1r `idle_resources` per-class counter.
   ///
   /// Resolves the class by simple name over the isolate's class list and
   /// sums `getInstances` totalCount across name collisions (two libraries

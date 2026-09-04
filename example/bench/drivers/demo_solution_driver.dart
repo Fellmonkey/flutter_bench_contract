@@ -1,6 +1,6 @@
 // demo_solution_driver.dart — example consumer of flutter_bench_contract:
 // a toast/popover-like "solution" (bottom card, no anchor). Hand-written over
-// the generated skeleton (bench_contract_specs §1–§3): the scene is built by
+// the generated skeleton: the scene is built by
 // the driver, the content is the package's ContractCard, the verbs are the
 // solution's own calls. No external library is involved — the demo shows the
 // shape of a driver for an unanchored overlay class (S4 → unsupported).
@@ -39,13 +39,13 @@ class DemoSolutionDriver implements LibraryDriver {
   @override
   bool isStable() => !SchedulerBinding.instance.hasScheduledFrame;
 
-  /// The ContractCard root — keyed by the package's contract (spec §2), so
+  /// The ContractCard root — keyed by the package's contract, so
   /// the finder is the same regardless of how the card is mounted.
   @override
   Finder currentContent(int state) =>
       find.byKey(Key(contractCardKey(state)), skipOffstage: false);
 
-  /// The neutral scene (spec §1) — the demo has no anchor rows, but the
+  /// The neutral scene — the demo has no anchor rows, but the
   /// with-library scene mounts the solution's always-on host (a Stack over
   /// the list: idle renders nothing, an active state renders the measured
   /// ContractCard at the bottom). The base scene (S1) is untouched.

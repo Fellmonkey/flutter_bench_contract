@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// The driver contract (bench_contract_specs §3). This file is copied into
+// The per-solution driver contract. This file is copied into
 // the consumer (NOT into the published package's lib/): the driver runs in
 // the flutter_test context and returns flutter_test types, which must not
 // become a dependency of the published package.
@@ -20,7 +20,7 @@ abstract class LibraryDriver {
   /// Solution name — the column label of reports/tables.
   String get name;
 
-  /// Builds the neutral contract scene (spec §1): `MaterialApp` (Material 3)
+  /// Builds the neutral contract scene: `MaterialApp` (Material 3)
   /// with `AppBar(title: 'Contract scene')`, a `ListView` of 12 rows (row 5
   /// = element B, the anchor), a 1200 px scroll margin after the rows, and a
   /// fixed `FloatingActionButton` (element A). Keys and geometry are the
@@ -45,7 +45,7 @@ abstract class LibraryDriver {
   Future<void> hide();
 
   /// Predicate "my work on the current step is finished" — NOT an action.
-  /// The scenario owns pumping (spec Р7): it pumps a frame and polls this
+  /// The scenario owns pumping: it pumps a frame and polls this
   /// predicate until the 10 s timeout. Returning true means there is
   /// nothing more to pump (entrance/exit animation finished, state stable).
   bool isStable();

@@ -85,7 +85,7 @@ void main() {
           MetricsCardRow.fromDef(metricDefOf('active_heap')!),
           MetricsCardRow.fromDef(metricDefOf('hide_retention')!),
         ],
-        values: {'idle_zero': 4, 'show_latency': 72},
+        values: const {'idle_zero': 4, 'show_latency': 72},
         note: 'Methodology: README.md.',
         legend: 'see the README for the head-to-head table',
       ),

@@ -1,5 +1,5 @@
 // ContractCard (lib/card.dart) — the measured content of the contract
-// scenarios (spec §2). These tests pin the contract surface that every
+// scenarios. These tests pin the contract surface that every
 // S2–S4 driver must mount: the root key, the exact texts of both content
 // states, the semantics label, the fixed card size, and the failure mode
 // for an unknown state. Drivers and goldens depend on these staying put.
@@ -49,7 +49,7 @@ void main() {
     // getSemantics locates the semantics node covering the card and returns
     // the boundary it is announced under. With container: true the node
     // merges its children into one unit, so a reader hears the presence
-    // label AND the content (spec §2) — assert both are announced.
+    // label AND the content — assert both are announced.
     final label = tester.getSemantics(find.byKey(Key(contractCardKey(1)))).label;
     final (title, description) = kContractCardContent[1]!;
     expect(label, contains('Contract card'));

@@ -4,9 +4,8 @@
 // the consumer supplies only its content (title/subtitle/rows/subtitles/
 // legend via the manifest `card:` section — see `contract card`).
 //
-// The layout is ported byte-for-byte from hintful's original card render
-// (the marketing snapshot published by its record flow): 7 tiles in two
-// columns (4+3) with an optional methodology note in the last right slot.
+// Layout: 7 tiles in two columns (4+3) with an optional methodology note in
+// the last right-column slot.
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -203,7 +202,9 @@ class _Header extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: style.headerText.withValues(alpha: 0.9),
+                    // withAlpha (not withOpacity) — the non-deprecated
+                    // primitive; keeps the SDK floor at Flutter 3.24.
+                    color: style.headerText.withAlpha((0.9 * 255).round()),
                     fontSize: 21,
                   ),
                 ),
@@ -214,7 +215,7 @@ class _Header extends StatelessWidget {
               Text(
                 lowerIsBetter!,
                 style: TextStyle(
-                  color: style.headerText.withValues(alpha: 0.85),
+                  color: style.headerText.withAlpha((0.85 * 255).round()),
                   fontFamily: 'RobotoMedium',
                   fontSize: 20,
                 ),
@@ -238,7 +239,7 @@ class _TilesGrid extends StatelessWidget {
   final Map<String, num> values;
 
   /// Methodology note rendered in the last right-column slot (below the
-  /// right column's tiles) — the original card's _MethodNote position.
+  /// right column's tiles).
   final String? note;
   final MetricsCardStyle style;
 
@@ -356,9 +357,8 @@ class _MetricTile extends StatelessWidget {
               child: FractionallySizedBox(
                 widthFactor: _fraction(),
                 // Container (not a bare DecoratedBox): with no child a
-                // Container expands to its constraints, a DecoratedBox
-                // collapses to zero — the fill must paint the full
-                // fraction (port of the original card).
+                // Container expands to its constraints, while a DecoratedBox
+                // collapses to zero — the fill must paint the full fraction.
                 child: Container(
                   decoration:
                       BoxDecoration(gradient: style.barGradient),

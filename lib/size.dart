@@ -1,9 +1,9 @@
-// S7 `size` — the host-build size scenario (spec §5.8). Pure parse/config
+// S7 `size` — the host-build size scenario. Pure parse/config
 // side: what a consumer declares in the manifest `size:` section and how
 // the two platform measurements read their outputs.
 //
 // Two legs, both release host builds (no device), both deterministic per
-// SDK+ABI (so their goldens are SDK-pinned, Р16):
+// SDK+ABI (so their goldens are SDK-pinned):
 //
 //   native  — `flutter build apk --release --analyze-size` on the app that
 //             imports the solution; the code-size JSON tree is walked for

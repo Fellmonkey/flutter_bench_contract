@@ -1,10 +1,10 @@
-// The shared scene contract (spec §1): one neutral scene for every scenario.
+// The shared scene contract: one neutral scene for every scenario.
 // The solution's driver builds the scene with its own widgets; the structure
 // (AppBar + element A + 12 rows with element B + scroll margin) and the
 // keys below are the package's contract.
 import 'package:flutter/material.dart';
 
-// ── Geometry (spec §1) ────────────────────────────────────────────────────
+// ── Geometry ──────────────────────────────────────────────────────────────
 
 /// Rows in the scene's ListView.
 const int kSceneRowCount = 12;
@@ -20,7 +20,7 @@ const double kSceneRowHeight = 72;
 /// defect and fails instead of measuring an empty scroll.
 const double kSceneScrollMargin = 1200;
 
-// ── Keys (spec §1: the scenario finds A, B and the list by these) ─────────
+// ── Keys (the scenario finds A, B and the list by these) ──────────────────
 
 /// Key of the scrollable list (`ScrollController` owner).
 const String kSceneListKey = 'scene.list';
@@ -31,7 +31,7 @@ const String kSceneAKey = 'scene.a';
 /// Key of row [index] (`kSceneBRow` = element B).
 String sceneRowKey(int index) => 'scene.row.$index';
 
-/// Builds the neutral contract scene (spec §1) for a [LibraryDriver]: the
+/// Builds the neutral contract scene for a [LibraryDriver]: the
 /// AppBar + element A (FAB, increments [SceneSpec.aTaps]) + the ListView of
 /// 12 rows (element B at `kSceneBRow`) + the scroll margin, all under a
 /// MaterialApp. The consumer's driver supplies only the library-specific
@@ -101,7 +101,7 @@ Widget buildContractScene(
   );
 }
 
-/// Per-scene runtime handles (spec §1): created fresh per scene mount, owned
+/// Per-scene runtime handles: created fresh per scene mount, owned
 /// by the scenario (dispose in the test), wired by the driver's `buildScene`.
 ///
 /// - [listScroll] must be attached to the scene's ListView — the scenario

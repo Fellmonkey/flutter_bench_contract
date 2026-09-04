@@ -168,7 +168,7 @@ template: latest
     });
   });
 
-  group('customScenarios (Р15)', () {
+  group('customScenarios', () {
     test('parses entries with defaults (ref custom, runs 1)', () {
       final root = writeManifest('''
 library: my_package

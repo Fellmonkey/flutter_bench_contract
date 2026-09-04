@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S3 update_latency (spec §5.4): wall ms from `update(state)` to the frame
+// S3 update_latency: wall ms from `update(state)` to the frame
 // where the NEW ContractCard is visible, the OLD one is gone and the state
 // is stable. Three transitions per run, the metric is their median — a
 // smeared transition cannot win: wall time is paid by whoever transitions.

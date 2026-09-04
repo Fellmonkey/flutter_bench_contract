@@ -1,7 +1,7 @@
 // GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
 // Regenerate: dart run flutter_bench_contract:contract init --force
 //
-// S1 idle_zero (spec §5.1): how many tree elements the solution adds when
+// S1 idle_zero: how many tree elements the solution adds when
 // nothing is shown — the difference between the base scene (no solution)
 // and the with-solution idle scene. "0" is true zero-idle. The count walks
 // the live element tree; there is no self-report the solution could tune.
