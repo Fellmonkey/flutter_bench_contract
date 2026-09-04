@@ -89,6 +89,11 @@ String? driverClassOf(File driverFile) {
 String idleClassesLiteral(List<String> idleClasses) =>
     '[${idleClasses.map((c) => "'${c.replaceAll("'", r"\'")}'").join(', ')}]';
 
+/// Default footer note (absent `card.note:`): points at the package README.
+const String _kCardDefaultNote =
+    'Methodology: flutter_bench_contract — see the package README '
+    '(s1–s7, medians, one-sided gate, anti-tuning).';
+
 /// The dumb-bridge source for one scenario: registers its smart body (in
 /// the package's lib/scenarios.dart) with the consumer's driver instance.
 String _bridgeSource({
@@ -283,8 +288,9 @@ scenarios: [${declared.join(', ')}]
 #     out: build/metrics_card.png #   PNG from the recorded goldens
 #     title: <library> benchmarks — contract
 #     subtitle: profile build · S1–S7 contract scenarios
-#     # note: Methodology ...        # last right tile slot
-#     # legend: ...                  # bottom bar
+#     # note: Methodology ...        # footer left; absent → package default
+#     # legend: ...                  # footer right; absent → derived from
+#     #                               #   the manifest (head-to-head vs not)
 #     # subtitles: {metricKey: line} # per-tile marketing line
 #   readme:                       # `contract readme` renders the README
 #     target: ../README.md        #   section between the bench markers
@@ -1074,11 +1080,9 @@ Future<bool> _runDevice(
 
 // ── card (published metrics-card PNG) ──────────────────────────────────────
 
-/// Renders the manifest `card:` metrics card: values = the recorded goldens
-/// (rows = the publishable defs with a recorded value, in canonical order),
-/// content = the manifest's marketing copy. The render runs as a generated
-/// flutter-test golden (real Roboto from the SDK's material fonts — nothing
-/// vendored), then the PNG is copied to the manifest's `out:` path.
+/// Renders the manifest `card:` metrics card from the recorded goldens as
+/// a golden PNG (generated flutter-test render, real SDK Roboto), then
+/// copies it to `card.out:`.
 ///
 /// Exit code: 0 ok / 1 render failed / 2 usage or missing `card:` config.
 Future<int> cmdCard(List<String> args) async {
@@ -1101,7 +1105,11 @@ Future<int> cmdCard(List<String> args) async {
   final values = <String, num>{};
   final rows = <Map<String, Object?>>[];
   for (final def in kPublishableMetricDefs) {
-    final value = store.load(def.key);
+    // Own refs only (android → any): the card must never fall back to a
+    // foreign ref's value — a metric recorded only for a rival would
+    // otherwise render as the consumer's own number (cross-library
+    // contamination). The README renderer applies the same rule per column.
+    final value = store.load(def.key, fallbackAny: false);
     if (value == null) continue;
     values[def.key] = value;
     rows.add({
@@ -1117,11 +1125,21 @@ Future<int> cmdCard(List<String> args) async {
     return 1;
   }
 
+  // Footer defaults: note → [_kCardDefaultNote]; legend → head-to-head
+  // wording only when the consumer publishes a comparison.
+  final hasHeadToHead = manifest.libraries.isNotEmpty ||
+      (manifest.readme?.columns.length ?? 0) > 1;
+  final note = card.note?.trim() ?? _kCardDefaultNote;
+  final legend = card.legend ??
+      (hasHeadToHead
+          ? 'head-to-head — see the README for the comparison table'
+          : null);
+
   final payload = jsonEncode({
     'title': card.title,
     'subtitle': card.subtitle,
-    'note': card.note?.trim(), // YAML block scalars add a trailing newline
-    'legend': card.legend,
+    'note': note, // YAML block scalars add a trailing newline — trimmed above
+    'legend': legend,
     'rows': rows,
     'values': values,
   });
@@ -1213,7 +1231,7 @@ void main() {
 
     await loadSdkRobotoFonts();
 
-    tester.view.physicalSize = const Size(2400, 1080);
+    tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);

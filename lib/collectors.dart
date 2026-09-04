@@ -136,16 +136,9 @@ class VmServiceHeap {
     return values[values.length ~/ 2];
   }
 
-  /// Live instances of the class named [className] in the test isolate,
-  /// after a forced GC — the S1r `idle_resources` per-class counter.
-  ///
-  /// Resolves the class by simple name over the isolate's class list and
-  /// sums `getInstances` totalCount across name collisions (two libraries
-  /// declaring the same simple name — the consumer's declared names are
-  /// solution-specific, so collisions are rare; summing keeps the counter
-  /// conservative). The limit caps the returned refs, never totalCount.
-  /// Returns null when the class list or the RPC failed (the caller degrades
-  /// to the diagnostic path instead of reporting a number).
+  /// Live instances of [className] after a forced GC (S1r per-class
+  /// counter). Counts implementers too — an abstract declared class would
+  /// otherwise trivially count 0. Null on RPC failure.
   Future<int?> instancesOfClass(String className) async {
     try {
       await _service.getAllocationProfile(_isolateId, gc: true);
@@ -157,6 +150,8 @@ class VmServiceHeap {
             _isolateId,
             c.id!,
             _kInstanceProbeLimit,
+            includeSubclasses: true,
+            includeImplementers: true,
           );
           total += set.totalCount ?? 0;
         }

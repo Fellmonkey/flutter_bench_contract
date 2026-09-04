@@ -1,21 +1,15 @@
-// The published metrics card — a landscape golden PNG (2400x1080) rendered
-// from the recorded goldens. Machinery of the card (layout, value
-// formatting, SDK-font loading, the render harness) lives in the package;
-// the consumer supplies only its content (title/subtitle/rows/subtitles/
-// legend via the manifest `card:` section — see `contract card`).
-//
-// Layout: 7 tiles in two columns (4+3) with an optional methodology note in
-// the last right-column slot.
+// The published metrics card — a landscape golden PNG rendered from the
+// recorded goldens. Canvas 1600x900 (README caps images at ~800px); content
+// (title/rows/legend) comes from the manifest `card:` — see `contract card`.
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'defs.dart';
 
-/// One published metric tile: the def carries key/label/unit, [subtitle] is
-/// the consumer's marketing line under the tile (optional).
+/// One published metric tile: the def carries key/label/unit; [subtitle] is
+/// an optional consumer marketing line under the tile.
 class MetricsCardRow {
   const MetricsCardRow({
     required this.key,
@@ -43,36 +37,38 @@ class MetricsCardRow {
 /// a consumer that does not restyle keeps the published snapshot identical.
 class MetricsCardStyle {
   const MetricsCardStyle({
-    this.sceneBackground = const Color(0xFFEDF1F4),
-    this.cardBackground = Colors.white,
+    this.sceneBackground = const Color(0xFFE6ECF0),
+    this.cardBackground = const Color(0xFFF4F7F9),
+    this.tileBackground = Colors.white,
     this.headerGradient = const LinearGradient(
-      colors: [Color(0xFF00695C), Color(0xFF26A69A)],
+      colors: [Color(0xFF004D40), Color(0xFF26A69A)],
     ),
     this.headerText = Colors.white,
-    this.accent = const Color(0xFF00695C),
-    this.labelColor = const Color(0xFF37474F),
+    this.accent = const Color(0xFF00796B),
+    this.labelColor = const Color(0xFF263238),
     this.subtitleColor = const Color(0xFF78909C),
-    this.barTrack = const Color(0xFFE0E7EA),
-    this.barGradient = const LinearGradient(
-      colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
-    ),
   });
 
   final Color sceneBackground;
   final Color cardBackground;
+
+  /// Tile card fill (white).
+  final Color tileBackground;
   final Gradient headerGradient;
   final Color headerText;
   final Color accent;
   final Color labelColor;
   final Color subtitleColor;
-  final Color barTrack;
-  final Gradient barGradient;
 }
 
-/// The marketing card: header (title + subtitle + "lower is better"),
+/// The marketing card: header (title + subtitle + "lower is better" badge),
 /// a grid of metric tiles ([rows], values from [values] by row key) and a
 /// bottom [legend]. Rendered at a fixed landscape size by the render
 /// harness (`contract card`), not laid out for arbitrary screens.
+///
+/// Deliberately no progress bar per tile: rows carry incommensurable units
+/// (ms, KB, elements), so a shared 0-100% fill would be meaningless — the
+/// value + unit is the data.
 class MetricsCard extends StatelessWidget {
   const MetricsCard({
     super.key,
@@ -119,18 +115,18 @@ class MetricsCard extends StatelessWidget {
         backgroundColor: style.sceneBackground,
         body: Center(
           child: Container(
-            width: 2260,
-            height: 990,
-            margin: const EdgeInsets.symmetric(horizontal: 70, vertical: 45),
-            padding: const EdgeInsets.all(32),
+            width: 1488,
+            height: 828,
+            margin: const EdgeInsets.symmetric(horizontal: 56, vertical: 36),
+            padding: const EdgeInsets.all(26),
             decoration: BoxDecoration(
               color: style.cardBackground,
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(24),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x22000000),
-                  blurRadius: 36,
-                  offset: Offset(0, 12),
+                  blurRadius: 28,
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
@@ -143,17 +139,16 @@ class MetricsCard extends StatelessWidget {
                   lowerIsBetter: lowerIsBetter,
                   style: style,
                 ),
-                const SizedBox(height: 26),
+                const SizedBox(height: 16),
                 Expanded(
                   child: _TilesGrid(
                     rows: rows,
                     values: values,
-                    note: note,
                     style: style,
                   ),
                 ),
-                const SizedBox(height: 18),
-                _Legend(text: legend, style: style),
+                const SizedBox(height: 12),
+                _Footer(note: note, legend: legend, style: style),
               ],
             ),
           ),
@@ -184,40 +179,49 @@ class _Header extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         child: Row(
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: style.headerText,
+                      fontFamily: 'RobotoBold',
+                      fontSize: 40,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      // withAlpha (not withOpacity) — the non-deprecated
+                      // primitive; keeps the SDK floor at Flutter 3.24.
+                      color: style.headerText.withAlpha((0.9 * 255).round()),
+                      fontSize: 19,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (lowerIsBetter != null)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                decoration: BoxDecoration(
+                  color: style.headerText.withAlpha(66),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  lowerIsBetter!,
                   style: TextStyle(
                     color: style.headerText,
-                    fontFamily: 'RobotoBold',
-                    fontSize: 42,
+                    fontFamily: 'RobotoMedium',
+                    fontSize: 15,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    // withAlpha (not withOpacity) — the non-deprecated
-                    // primitive; keeps the SDK floor at Flutter 3.24.
-                    color: style.headerText.withAlpha((0.9 * 255).round()),
-                    fontSize: 21,
-                  ),
-                ),
-              ],
-            ),
-            const Spacer(),
-            if (lowerIsBetter != null)
-              Text(
-                lowerIsBetter!,
-                style: TextStyle(
-                  color: style.headerText.withAlpha((0.85 * 255).round()),
-                  fontFamily: 'RobotoMedium',
-                  fontSize: 20,
                 ),
               ),
           ],
@@ -231,16 +235,11 @@ class _TilesGrid extends StatelessWidget {
   const _TilesGrid({
     required this.rows,
     required this.values,
-    required this.note,
     required this.style,
   });
 
   final List<MetricsCardRow> rows;
   final Map<String, num> values;
-
-  /// Methodology note rendered in the last right-column slot (below the
-  /// right column's tiles).
-  final String? note;
   final MetricsCardStyle style;
 
   @override
@@ -250,9 +249,7 @@ class _TilesGrid extends StatelessWidget {
     // only sends recorded rows; this guard keeps a stale config honest.
     final withValues =
         rows.where((r) => values.containsKey(r.key)).toList();
-    // Two balanced columns: the left takes ceil(n/2) tiles, the right the
-    // rest — with 7 metrics that is 4+3, and the last right slot carries
-    // the optional methodology note.
+    // Two balanced columns (left takes ceil(n/2) tiles, right the rest).
     final leftCount = (withValues.length + 1) ~/ 2;
     final left = withValues.take(leftCount).toList();
     final right = withValues.skip(leftCount).toList();
@@ -263,47 +260,28 @@ class _TilesGrid extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final def in left)
-                _MetricTile(
-                  row: def,
-                  value: values[def.key]?.toDouble() ?? 0,
-                  style: style,
-                ),
-            ],
+            children: [for (final def in left) _tile(def)],
           ),
         ),
-        const SizedBox(width: 36),
+        const SizedBox(width: 22),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final def in right)
-                _MetricTile(
-                  row: def,
-                  value: values[def.key]?.toDouble() ?? 0,
-                  style: style,
-                ),
-              if (note != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Text(
-                    note!,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: style.subtitleColor,
-                    ),
-                  ),
-                ),
-            ],
+            children: [for (final def in right) _tile(def)],
           ),
         ),
       ],
     );
   }
+
+  Widget _tile(MetricsCardRow def) => _MetricTile(
+        row: def,
+        value: values[def.key]?.toDouble() ?? 0,
+        style: style,
+      );
 }
+
 
 class _MetricTile extends StatelessWidget {
   const _MetricTile({
@@ -318,97 +296,96 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: style.tileBackground,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120D2B2A),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: Text(
                   row.label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w600,
                     color: style.labelColor,
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 14),
               Text(
                 formatCardValue(value, row.unit),
                 style: TextStyle(
-                  fontSize: 30,
+                  fontSize: 56,
                   fontFamily: 'RobotoBold',
                   color: style.accent,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: Container(
-              height: 24,
-              color: style.barTrack,
-              alignment: Alignment.centerLeft,
-              child: FractionallySizedBox(
-                widthFactor: _fraction(),
-                // Container (not a bare DecoratedBox): with no child a
-                // Container expands to its constraints, while a DecoratedBox
-                // collapses to zero — the fill must paint the full fraction.
-                child: Container(
-                  decoration:
-                      BoxDecoration(gradient: style.barGradient),
-                ),
-              ),
-            ),
-          ),
           if (row.subtitle != null && row.subtitle!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 5),
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
                 row.subtitle!,
-                style: TextStyle(fontSize: 15, color: style.subtitleColor),
+                style: TextStyle(fontSize: 13, color: style.subtitleColor),
               ),
             ),
         ],
       ),
     );
   }
-
-  double _fraction() {
-    if (value <= 0) return 0;
-    final exp = (math.log(value) / math.ln10).ceil();
-    final cap = math.pow(10, exp).toDouble();
-    final nice =
-        cap / 2 >= value ? cap / 2 : (cap / 5 >= value ? cap / 5 : cap);
-    return (value / nice).clamp(0.1, 1.0);
-  }
 }
 
-class _Legend extends StatelessWidget {
-  const _Legend({required this.text, required this.style});
+/// Bottom row: methodology note (left) + legend (right).
+class _Footer extends StatelessWidget {
+  const _Footer({
+    required this.note,
+    required this.legend,
+    required this.style,
+  });
 
-  final String? text;
+  final String? note;
+  final String? legend;
   final MetricsCardStyle style;
 
   @override
   Widget build(BuildContext context) {
-    if (text == null || text!.isEmpty) return const SizedBox.shrink();
     return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Text(
-          text!,
-          style: TextStyle(
-            fontSize: 17,
-            fontFamily: 'RobotoMedium',
-            color: style.subtitleColor,
+        Expanded(
+          child: Text(
+            note ?? '',
+            style: TextStyle(fontSize: 13, color: style.subtitleColor),
           ),
         ),
+        const SizedBox(width: 24),
+        if (legend != null && legend!.isNotEmpty)
+          Text(
+            legend!,
+            style: TextStyle(
+              fontSize: 15,
+              fontFamily: 'RobotoMedium',
+              color: style.subtitleColor,
+            ),
+          ),
       ],
     );
   }

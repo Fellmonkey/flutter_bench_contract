@@ -21,7 +21,7 @@ void main() {
   };
 
   Future<void> pumpCard(WidgetTester tester, MetricsCard card) async {
-    tester.view.physicalSize = const Size(2400, 1080);
+    tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -35,7 +35,7 @@ void main() {
         MetricsCardRow.fromDef(def,
             subtitle: def.key == 'idle_zero' ? 'zero means no idle tax' : null),
     ];
-    expect(rows, hasLength(7));
+    expect(rows, hasLength(8));
     expect(rows.first.key, 'idle_zero');
     expect(rows.first.label, 'Idle tree diff (S1)');
     expect(rows.first.unit, 'elements');
@@ -96,35 +96,6 @@ void main() {
     expect(find.text('zero means no idle tax'), findsOneWidget);
   });
 
-  testWidgets('the bar fill paints at a non-zero size (regression: a bare '
-      'DecoratedBox with no child collapses to zero and the fill vanishes)',
-      (tester) async {
-    await pumpCard(
-      tester,
-      MetricsCard(
-        title: 't',
-        subtitle: 's',
-        rows: [
-          for (final def in kPublishableMetricDefs) MetricsCardRow.fromDef(def),
-        ],
-        values: values,
-      ),
-    );
-    final fills = tester
-        .widgetList<Container>(find.byWidgetPredicate((w) =>
-            w is Container &&
-            w.decoration is BoxDecoration &&
-            (w.decoration as BoxDecoration).gradient is LinearGradient))
-        .toList();
-    // One fill per tile bar (7 tiles).
-    expect(fills, hasLength(7));
-    for (final fill in fills) {
-      final r = tester.getRect(find.byWidget(fill));
-      expect(r.height, 24, reason: 'bar fill must paint the full bar height');
-      expect(r.width, greaterThan(0),
-          reason: 'bar fill must paint its fraction width');
-    }
-  });
 
   testWidgets('a missing value never fabricates a number (row not rendered)',
       (tester) async {

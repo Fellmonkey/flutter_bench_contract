@@ -171,21 +171,13 @@ int _countElements(WidgetTester tester) {
 
 // ── S1r idle_resources ────────────────────────────────────────────────────
 
-/// S1r (option `idleClasses:`): live instances of the solution's declared
-/// classes (controller / registry / listeners / timers) must return to their
-/// baseline after warm-up + hide() — a class leak must not hide behind a
-/// heap delta.
+/// S1r (option `idleClasses:`): declared classes (controller, registry,
+/// listeners) must return to baseline after warm-up + hide() — a class leak
+/// must not hide behind a heap delta.
 ///
-/// Two modes, decided by [idleClasses]:
-///   - classes declared: the scenario counts live instances of every
-///     declared class via the VM service (`getInstances` after a forced GC)
-///     before and after the warm-up protocol, reports the max per-class
-///     delta and asserts it is EXACTLY 0 (the in-test assert is the
-///     two-sided gate; the store check is the one-sided regression layer on
-///     the value).
-///   - no classes declared: degrades to the M1 diagnostic (retained
-///     top-class growth print) and reports no value — nothing is recorded
-///     or gated.
+/// [idleClasses] declared → count live instances per class before/after
+/// (exact assert 0, in-test two-sided). Not declared → M1 diagnostic only
+/// (top-class growth print), nothing recorded.
 void _s1rIdleResources(LibraryDriver driver, List<String> idleClasses) {
   testWidgets('S1r idle_resources', (tester) async {
     final spec = SceneSpec();

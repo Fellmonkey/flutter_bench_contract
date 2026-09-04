@@ -27,6 +27,7 @@ void main() {
         kPublishableMetricDefs.map((d) => d.key),
         [
           'idle_zero',
+          'idle_resources',
           'show_latency',
           'update_latency',
           'active_heap',
@@ -35,8 +36,9 @@ void main() {
           'bundle_delta',
         ],
       );
-      // Diagnostics (S1r/S4) record no number → not a publishable row.
-      expect(metricDefOf('idle_resources'), isNull);
+      // S1r records a number when idleClasses is declared → publishable.
+      expect(metricDefOf('idle_resources'), isNotNull);
+      // S4 records no number (two-sided in-scenario assert) → not a row.
       expect(metricDefOf('scroll_coupled'), isNull);
     });
 

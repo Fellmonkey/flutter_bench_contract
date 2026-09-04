@@ -1,3 +1,14 @@
+## 0.3.2
+
+- **S1r published metric.** Declared `idleClasses:` → max per-class delta
+  (0 = no leak) recorded; otherwise n/a. Counter counts implementers too
+  (abstract classes would otherwise measure a trivial 0).
+- **Card.** Footer note/legend derived from the manifest (no hardcoded
+  rivals); redesigned tiles; 2400×1080 → 1600×900 + larger type (README
+  caps at ~800px); decorative per-tile progress bars removed.
+- `contract card` resolves the consumer's own refs only (a rival metric
+  can no longer render as the consumer's own).
+
 ## 0.3.1
 
 **S6 protocol defect fix: per-cycle heap baseline + unphysical-drift guard.**
