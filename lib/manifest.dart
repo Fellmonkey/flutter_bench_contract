@@ -13,10 +13,10 @@ import 'size.dart';
 /// File name of the consumer manifest.
 const String kManifestFileName = 'bench_contract.yaml';
 
-/// Version of the generated templates (driver API + scenario files). Written
-/// into the manifest by `init`; `contract verify` fails when the consumer's
-/// generated files are older than the package's templates.
-const int kTemplateVersion = 1;
+/// Version of the generated bridge files (per-scenario bridges + flutter
+/// drive driver). Written into the manifest by `init`; `contract verify`
+/// fails when the consumer's generated files are older than the package's.
+const int kTemplateVersion = 2;
 
 /// All contract scenario ids (metric ids are identical to the scenario ids).
 const Set<String> kContractScenarioIds = {

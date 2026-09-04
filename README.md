@@ -46,21 +46,23 @@ deleted.
 
 ```bash
 flutter pub add --dev flutter_bench_contract
-dart run flutter_bench_contract:contract init          # scaffold manifest + scenarios + driver skeleton
+dart run flutter_bench_contract:contract init          # scaffold manifest + scenario bridges + driver skeleton
 dart run flutter_bench_contract:contract run           # host sanity run, no device
 dart run flutter_bench_contract:contract run \
     --device emulator-5554 --mode record --ref android # device run, record goldens
 ```
 
-`contract run` executes the declared scenarios; `--mode record` writes
-`benchmarks.json`. From then on, CI runs `--mode check` and fails only on
-regressions. `contract verify` checks your generated files are in sync with
-the package's templates.
+The scenario bodies live **once** in the package (`lib/scenarios.dart`), so
+consumers cannot edit them — a scenario change is a package version bump.
+`init` copies only ~8-line *bridges* into `bench/contract/`, each wiring your
+driver into its own `flutter test` process (fresh app/heap per scenario).
+`contract verify` checks those generated files are in sync with the
+package's template version.
 
 ### The driver — the only code you write
 
-`init` scaffolds `bench/contract/library_driver.dart`; you implement it
-(condensed):
+`init` scaffolds `bench/drivers/<library>_driver.dart` (a skeleton when
+missing); you implement it (condensed):
 
 ```dart
 class MyDriver implements LibraryDriver {
@@ -135,7 +137,7 @@ idleClasses: [MyController, MyRegistry]   # S1r per-class counting
 
 | Command | What it does |
 |---|---|
-| `init` | Scaffold `bench_contract.yaml` + `bench/contract/` (driver API, scenario tests, driver skeleton). `--force` regenerates. |
+| `init` | Scaffold `bench_contract.yaml` + the `bench/contract/` scenario bridges + a driver skeleton when missing. `--force` regenerates (and re-syncs the manifest's `template:` key). |
 | `run` | Run the manifest's scenarios and check/record goldens. Host (`flutter test`) without `--device`; `flutter drive --no-dds --profile` with one. Options: `--mode check\|record`, `--ref`, `--slack`, `--scenarios`, `--library`. |
 | `size` | S7 host size builds from the manifest `size:` section. `--legs native\|web\|both`. |
 | `card` | Render the metrics-card PNG from the recorded goldens (manifest `card:`). |
@@ -161,7 +163,7 @@ customScenarios:
 
 **Head-to-head.** One manifest can run several solutions side by side: list
 them under `libraries:` (a driver per solution), and `contract run` executes
-the *same* scenario templates against each with per-solution golden refs.
+the *same* scenario bodies against each with per-solution golden refs.
 The published table gets a column per solution.
 
 ## First guarantor: hintful
@@ -199,7 +201,8 @@ gate checks. Its `bench-core` workflow is the CI shape to copy.
 | `lib/goldens.dart` | The `benchmarks.json` golden store: `record`, one-sided `check`, `load`. Pure Dart. |
 | `lib/scene.dart` | The neutral scene (`buildContractScene`, `SceneSpec`) and its key/geometry constants. |
 | `lib/card.dart` | The `ContractCard` content both scenarios and drivers mount by key. |
-| `templates/` | `library_driver.dart` (the driver API) and the S1–S7 scenario tests — copied into the consumer by `init`, versioned, never edited by hand. |
+| `lib/driver.dart` | The `LibraryDriver` contract a consumer implements. |
+| `lib/scenarios.dart` | The S1–S7 (+S1r) smart bodies, parameterized by driver — run by the generated bridges, versioned with the package. |
 | `lib/manifest.dart` | The `bench_contract.yaml` model: scenarios, `idleClasses:`, `libraries:`, `customScenarios:`, `size:`/`card:`/`readme:`. |
 | `lib/size.dart` | S7 size-build machinery (analyze-size, web bundle diff). |
 | `lib/defs.dart` | Canonical display metadata (label/unit) and value formatters. Pure Dart. |
@@ -208,9 +211,11 @@ gate checks. Its `bench-core` workflow is the CI shape to copy.
 | `bin/contract.dart` | The CLI. |
 
 `report.dart`, `goldens.dart`, `defs.dart`, `readme.dart` and `manifest.dart`
-are pure Dart — safe to import from plain `dart run` tools; `collectors.dart`
-needs the Flutter engine, and the driver/scenario files run under
-`flutter_test`.
+are pure Dart — safe to import from plain `dart run` tools. `collectors.dart`
+needs the Flutter engine; `driver.dart`, `scenarios.dart`, `scene.dart` and
+`card.dart` run under `flutter_test`, which the package depends on
+(precedent: golden_toolkit) so the scenario bodies can live in `lib/` and be
+published once instead of copied per consumer.
 
 ## Development
 

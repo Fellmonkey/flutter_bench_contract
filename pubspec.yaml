@@ -4,7 +4,7 @@ description: >-
   device scenarios (idle cost, show/update latency, scroll coupling, heap
   retention, size), a one-sided golden gate, and published results — as a
   reusable package.
-version: 0.1.0
+version: 0.2.0
 
 repository: https://github.com/Fellmonkey/flutter_bench_contract
 topics:
@@ -26,6 +26,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # The scenario bodies (lib/scenarios.dart) ARE tests: they pump a
+  # WidgetTester to measure show/update latency, ride the scroll and probe
+  # the tree. Publishing them in lib/ (instead of copying into consumers)
+  # is what makes the consumer side a dumb bridge — precedent: golden_toolkit
+  # also depends on flutter_test.
+  flutter_test:
+    sdk: flutter
   # Heap measurement (memory scenarios): VM-service RPCs from inside the
   # test process — the same protocol the DevTools Memory page uses. Pinned
   # to the SDK's own transitive copy.
@@ -34,8 +41,6 @@ dependencies:
   yaml: ^3.1.2
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
   flutter_lints: ^5.0.0
 
 flutter:

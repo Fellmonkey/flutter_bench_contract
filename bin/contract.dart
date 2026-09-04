@@ -3,9 +3,10 @@
 // S7 host size builds (size) and the published-results machinery (card:
 // the metrics-card PNG; readme: the root-README section).
 //
-//   init   — generate the consumer contract files from the package templates
-//            (driver API + scenario tests + a driver skeleton when missing)
-//            and write bench_contract.yaml.
+//   init   — generate the consumer contract files (per-scenario bridges —
+//            the smart bodies live in lib/scenarios.dart — the flutter-drive
+//            test driver, and a driver skeleton when missing) and write
+//            bench_contract.yaml.
 //   run    — run the manifest's declared scenarios (flutter drive --profile
 //            on a device, or flutter test on the host when no --device is
 //            given) into build/contract_report.jsonl, then check the
@@ -16,8 +17,8 @@
 //            the configured output path).
 //   readme — render the manifest `readme:` section into the consumer's
 //            README between the bench markers.
-//   verify — templates/manifest consistency (template version, driver file,
-//            generated scenario files).
+//   verify — generated-file/manifest consistency (template version, driver
+//            file, scenario bridges).
 //
 // Usage (cwd: the consumer root, or --dir <root>):
 //   dart run flutter_bench_contract:contract init [--force] [--scenarios a,b]
@@ -37,48 +38,7 @@ import 'package:flutter_bench_contract/readme.dart';
 import 'package:flutter_bench_contract/report.dart';
 import 'package:flutter_bench_contract/size.dart';
 
-// ── Package/template root resolution ───────────────────────────────────────
-
-/// Resolves the directory holding the package's templates/ folder: the
-/// flutter_bench_contract package root.
-///
-/// `dart run flutter_bench_contract:contract` executes the real bin source
-/// (path dep or pub cache), so bin/.. is the package root — valid from any
-/// consumer cwd. The .dart_tool/package_config.json lookup is only a
-/// fallback for setups where Platform.script is a snapshot shim.
-String resolvePackageRoot(String root) {
-  // Running from inside the package itself: templates sit right next to the
-  // target root (this also covers the dev loop before any consumer exists).
-  if (File('$root/templates/library_driver.dart').existsSync()) {
-    return File(root).absolute.path;
-  }
-  // The consumer's .dart_tool/package_config.json maps the dependency (path
-  // or hosted) to its root — resolve against the config's ABSOLUTE directory.
-  final configFile = File('$root/.dart_tool/package_config.json');
-  if (configFile.existsSync()) {
-    try {
-      final config =
-          jsonDecode(configFile.readAsStringSync()) as Map<String, dynamic>;
-      final configDir = File(configFile.absolute.path).parent.uri;
-      for (final p in (config['packages'] as List? ?? const [])) {
-        final name = (p as Map<String, dynamic>)['name'];
-        if (name == 'flutter_bench_contract') {
-          final rootUri = (p['rootUri'] as String?) ?? '';
-          final resolved = configDir.resolve(rootUri);
-          if (resolved.scheme == 'file' &&
-              File('${File.fromUri(resolved).path}/templates/library_driver.dart')
-                  .existsSync()) {
-            return File.fromUri(resolved).path;
-          }
-        }
-      }
-    } catch (_) {
-      // no config — fall through to the script heuristic
-    }
-  }
-  // Heuristic: the executable's own source lives in the package's bin/.
-  return File(Platform.script.toFilePath()).parent.parent.path;
-}
+// ── Path helpers ───────────────────────────────────────────────────────────
 
 /// Relative POSIX import path from [fromDir] to [toFile] (both relative to
 /// the consumer root, e.g. from 'bench/contract' to 'bench/drivers/x.dart').
@@ -95,11 +55,11 @@ String relativeImport(String fromDir, String toFile) {
   return [...ups, ...toParts.sublist(i)].join('/');
 }
 
-// ── Template rendering ─────────────────────────────────────────────────────
+// ── Bridge rendering ───────────────────────────────────────────────────────
 
-const String _kLibraryDriverTemplate = 'library_driver.dart';
-
-/// Scenario id → template file (under templates/scenarios/).
+/// Scenario id → generated bridge file (under the consumer's contract dir).
+/// Each bridge runs its scenario in its own `flutter test` process (fresh
+/// app/heap per scenario); the smart bodies live in lib/scenarios.dart.
 const Map<String, String> _kScenarioTemplates = {
   'idle_zero': 's1_idle_zero_test.dart',
   'idle_resources': 's1r_idle_resources_test.dart',
@@ -127,19 +87,32 @@ String? driverClassOf(File driverFile) {
 String idleClassesLiteral(List<String> idleClasses) =>
     '[${idleClasses.map((c) => "'${c.replaceAll("'", r"\'")}'").join(', ')}]';
 
-/// Renders a template file's tokens.
-String renderTemplate(String template, {
+/// The dumb-bridge source for one scenario: registers its smart body (in
+/// the package's lib/scenarios.dart) with the consumer's driver instance.
+String _bridgeSource({
+  required String id,
   required String driverImport,
-  required String apiImport,
   required String driverNew,
-  List<String> idleClasses = const [],
-}) {
-  return template
-      .replaceAll('{{driverImport}}', driverImport)
-      .replaceAll('{{apiImport}}', apiImport)
-      .replaceAll('{{driverNew}}', driverNew)
-      .replaceAll('{{idleClasses}}', idleClassesLiteral(idleClasses));
+  required List<String> idleClasses,
+}) =>
+    '''
+// GENERATED from flutter_bench_contract (scenario bridge) — do not edit by
+// hand. Regenerate: dart run flutter_bench_contract:contract init --force
+//
+// Dumb bridge: the $id smart body lives in the package (lib/scenarios.dart);
+// this file only wires the consumer's driver into its own test process.
+import 'package:flutter_bench_contract/scenarios.dart';
+
+$driverImport
+
+void main() {
+  runContractScenario(
+    '$id',
+    driver: $driverNew,
+    idleClasses: ${idleClassesLiteral(idleClasses)},
+  );
 }
+''';
 
 // ── init ───────────────────────────────────────────────────────────────────
 
@@ -157,9 +130,6 @@ int cmdInit(List<String> args) {
         scenarios = args[++i].split(',');
     }
   }
-  final packageRoot = resolvePackageRoot(root);
-  final templatesDir = '$packageRoot/templates';
-
   // Multi-library consumer (a manifest with `libraries:`): render one
   // scenario directory per solution; the manifest is user-authored and is
   // never rewritten here.
@@ -169,13 +139,7 @@ int cmdInit(List<String> args) {
     existingManifest = Manifest.load(root);
   }
   if (existingManifest != null && existingManifest.libraries.isNotEmpty) {
-    return _cmdInitMultiLibrary(
-      root,
-      force,
-      scenarios,
-      existingManifest,
-      templatesDir,
-    );
+    return _cmdInitMultiLibrary(root, force, scenarios, existingManifest);
   }
 
   // Driver identity: an existing bench_contract.yaml is the source of truth
@@ -205,15 +169,6 @@ int cmdInit(List<String> args) {
   const contractDir = 'bench/contract';
   Directory('$root/$contractDir').createSync(recursive: true);
 
-  // Driver API copy.
-  final apiSource = File('$templatesDir/$_kLibraryDriverTemplate')
-      .readAsStringSync();
-  final apiFile = File('$root/$contractDir/library_driver.dart');
-  if (!apiFile.existsSync() || force) {
-    apiFile.writeAsStringSync(apiSource);
-    stdout.writeln('wrote $contractDir/library_driver.dart');
-  }
-
   // Driver file (skeleton when missing): a manifest-declared driver that is
   // missing is scaffolded with the manifest's class name; a driver whose
   // file declares no LibraryDriver class is a hard failure.
@@ -222,13 +177,9 @@ int cmdInit(List<String> args) {
   if (!driverFile.existsSync()) {
     final skeletonClass = driverClass ?? '${_pascal(library)}Driver';
     driverFile.parent.createSync(recursive: true);
-    driverFile.writeAsStringSync(_driverSkeleton(
-      library,
-      skeletonClass,
-      relativeImport('bench/drivers', contractDir),
-    ));
+    driverFile.writeAsStringSync(_driverSkeleton(library, skeletonClass));
     stdout.writeln('wrote $driverRel (skeleton — implement show/update/hide/'
-        "isStable; the driver API lives in $contractDir/library_driver.dart)");
+        'isStable; the LibraryDriver contract comes from the package)');
     declaredClass = skeletonClass;
   }
   driverClass ??= declaredClass;
@@ -238,18 +189,16 @@ int cmdInit(List<String> args) {
     return 1;
   }
 
-  // Scenario files from the templates: an existing manifest's declared set
-  // is preserved unless --scenarios overrides it (otherwise --force after a
-  // template bump would silently drop scenarios the consumer added).
+  // Scenario bridges: an existing manifest's declared set is preserved
+  // unless --scenarios overrides it (otherwise --force would silently drop
+  // scenarios the consumer added). S7 has no bridge — it is the host size
+  // builds (`contract size`), configured by the manifest `size:` section.
   final wanted = scenarios ?? existingManifest?.scenarios ?? kDefaultScenarios;
   final declared = <String>[];
   for (final id in wanted) {
-    final templateName = _kScenarioTemplates[id];
-    if (templateName == null) {
+    final bridgeName = _kScenarioTemplates[id];
+    if (bridgeName == null) {
       if (id == 'size') {
-        // S7 has no test-template: it is the host size builds (`contract
-        // size`), configured by the manifest `size:` section. It stays a
-        // declared scenario but renders no file.
         stdout.writeln('  size: host build — declare a `size:` section and '
             'run `contract size`');
         declared.add(id);
@@ -258,20 +207,33 @@ int cmdInit(List<String> args) {
       }
       continue;
     }
-    final target = File('$root/$contractDir/$templateName');
+    final target = File('$root/$contractDir/$bridgeName');
     if (!target.existsSync() || force) {
-      final rendered = renderTemplate(
-        File('$templatesDir/scenarios/$templateName').readAsStringSync(),
+      target.writeAsStringSync(_bridgeSource(
+        id: id,
         driverImport:
             "import '${relativeImport(contractDir, driverRel)}';",
-        apiImport: "import 'library_driver.dart';",
         driverNew: '$driverClass()',
         idleClasses: existingManifest?.idleClasses ?? const [],
-      );
-      target.writeAsStringSync(rendered);
-      stdout.writeln('wrote $contractDir/$templateName');
+      ));
+      stdout.writeln('wrote $contractDir/$bridgeName');
     }
     declared.add(id);
+  }
+
+  // flutter-drive test driver (required by device runs — the CLI passes
+  // --driver=test_driver/integration_test.dart).
+  final driveDir = Directory('$root/test_driver');
+  final driveFile = File('${driveDir.path}/integration_test.dart');
+  if (!driveFile.existsSync() || force) {
+    driveDir.createSync(recursive: true);
+    driveFile.writeAsStringSync('''
+import 'package:integration_test/integration_test_driver.dart';
+
+/// Driver for `flutter drive --profile` benchmark runs.
+Future<void> main() => integrationDriver();
+''');
+    stdout.writeln('wrote test_driver/integration_test.dart');
   }
 
   // Manifest: generated once, owned by the consumer afterwards. --force
@@ -334,9 +296,41 @@ scenarios: [${declared.join(', ')}]
     stdout.writeln('$kManifestFileName exists — kept (--force regenerates the '
         'scenario files, never the manifest)');
   }
+  _syncManifestTemplate(root);
   stdout.writeln('init done: library=$library, driverClass=$driverClass, '
       'scenarios=[${declared.join(', ')}]');
   return 0;
+}
+
+/// Keeps the manifest's `template:` key at [kTemplateVersion]: rewrites a
+/// stale value or inserts the key when missing. Only that one line is
+/// touched — consumer-authored keys and comments are never rewritten. This
+/// is what makes `contract verify` able to detect generated files that
+/// predate a template change (init --force is the documented fix).
+void _syncManifestTemplate(String root) {
+  final file = File('$root/$kManifestFileName');
+  if (!file.existsSync()) return;
+  final lines = file.readAsLinesSync();
+  final out = <String>[];
+  var sawKey = false;
+  for (final line in lines) {
+    final m = RegExp(r'^template:\s*(\d+)\s*$').firstMatch(line);
+    if (m != null) {
+      sawKey = true;
+      if (m.group(1) != '$kTemplateVersion') out.add('template: $kTemplateVersion');
+      continue;
+    }
+    out.add(line);
+  }
+  if (sawKey) {
+    if (out.join('\n') != lines.join('\n')) {
+      file.writeAsStringSync('${out.join('\n')}\n');
+    }
+    return;
+  }
+  // No key yet: insert at the top (YAML top-level keys are order-free; the
+  // manifest's own header comment stays readable).
+  file.writeAsStringSync('template: $kTemplateVersion\n${lines.join('\n')}\n');
 }
 
 /// Multi-library init: render one scenario directory per manifest library
@@ -344,18 +338,10 @@ scenarios: [${declared.join(', ')}]
 /// never rewritten, and missing drivers are a hard error (no skeleton: in a
 /// head-to-head consumer the drivers ARE the product).
 int _cmdInitMultiLibrary(String root, bool force, List<String>? scenarios,
-    Manifest manifest, String templatesDir) {
+    Manifest manifest) {
   final wanted = scenarios ?? manifest.scenarios;
-  // ONE shared driver-API copy at the contract root: drivers import it as
-  // '../contract/library_driver.dart' regardless of which library they are
-  // (their import is user-authored and must be stable), and the per-library
-  // scenario files import it as '../library_driver.dart'.
-  final apiFile = File('$root/${manifest.contractDir}/library_driver.dart');
-  if (!apiFile.existsSync() || force) {
-    apiFile.writeAsStringSync(
-        File('$templatesDir/$_kLibraryDriverTemplate').readAsStringSync());
-    stdout.writeln('wrote ${manifest.contractDir}/library_driver.dart');
-  }
+  // Per-solution bridges import the solution's driver; the driver gets
+  // LibraryDriver from the package barrel.
   for (final entry in manifest.libraries) {
     final dir = manifest.dirFor(entry);
     Directory('$root/$dir').createSync(recursive: true);
@@ -387,11 +373,9 @@ int _cmdInitMultiLibrary(String root, bool force, List<String>? scenarios,
       }
       final target = File('$root/$dir/$templateName');
       if (!target.existsSync() || force) {
-        target.writeAsStringSync(renderTemplate(
-          File('$templatesDir/scenarios/$templateName').readAsStringSync(),
+        target.writeAsStringSync(_bridgeSource(
+          id: id,
           driverImport: driverImport,
-          // Shared api copy one level up (see above).
-          apiImport: "import '../library_driver.dart';",
           driverNew: '${entry.driverClass}()',
           idleClasses: manifest.idleClasses,
         ));
@@ -399,6 +383,7 @@ int _cmdInitMultiLibrary(String root, bool force, List<String>? scenarios,
       }
     }
   }
+  _syncManifestTemplate(root);
   stdout.writeln('init done: libraries='
       '${manifest.libraries.map((e) => e.name).join(', ')}, '
       'scenarios=[${wanted.join(', ')}]');
@@ -411,8 +396,7 @@ String _pascal(String s) {
   return parts.map((p) => p[0].toUpperCase() + p.substring(1)).join();
 }
 
-String _driverSkeleton(
-        String library, String driverClass, String apiImportRel) =>
+String _driverSkeleton(String library, String driverClass) =>
     '''
 // ${library}_driver.dart — consumer driver skeleton (generated by contract
 // init). Implement the verbs against your solution (scene keys/geometry:
@@ -421,8 +405,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:flutter_bench_contract/flutter_bench_contract.dart';
-
-import '$apiImportRel/library_driver.dart';
 
 class $driverClass implements LibraryDriver {
   @override
@@ -1340,8 +1322,8 @@ int usage() {
   stderr.writeln('''
 usage: dart run flutter_bench_contract:contract <command> [options]
 
-  init     scaffold the consumer contract files (driver API, scenario tests,
-           driver skeleton) and write bench_contract.yaml
+  init     scaffold the consumer contract files (per-scenario bridges, the
+           flutter-drive test driver, a driver skeleton) + bench_contract.yaml
            [--dir ROOT] [--force] [--scenarios idle_zero,show_latency,...]
   run      run the manifest's declared scenarios (contract S1–S7 + custom.*
            consumer scenarios under their own refs) and check/record goldens

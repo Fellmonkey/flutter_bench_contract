@@ -1,28 +1,29 @@
-// GENERATED from flutter_bench_contract (template v1) — do not edit by hand.
-// Regenerate: dart run flutter_bench_contract:contract init --force
+// The per-solution driver contract — the ONLY code a consumer writes: it
+// builds the neutral scene with the solution's own widgets and maps the
+// scenario verbs (show/update/hide) onto the solution. Everything else —
+// scenario procedures, collectors, goldens, gates — belongs to the package.
 //
-// The per-solution driver contract. This file is copied into
-// the consumer (NOT into the published package's lib/): the driver runs in
-// the flutter_test context and returns flutter_test types, which must not
-// become a dependency of the published package.
-//
-// The driver is the ONLY code a consumer writes: it builds the neutral scene
-// with the solution's own widgets and maps the scenario verbs
-// (show/update/hide) onto the solution. Everything else — scenario
-// procedures, collectors, goldens, gates — belongs to the package.
+// This file lives in lib/ (unlike in the early template design) because the
+// scenario bodies that drive it are the package's own tests
+// (lib/scenarios.dart): the package depends on flutter_test (precedent:
+// golden_toolkit), so the driver contract can too. The consumer's DRIVER
+// still lives consumer-side (bench/drivers/...): it imports the solution,
+// which the package must never depend on.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_bench_contract/flutter_bench_contract.dart';
+import 'scene.dart';
 
-/// Per-solution driver of the bench contract.
+/// Per-solution driver of the bench contract. Consumers implement this in a
+/// driver file (e.g. bench/drivers/my_driver.dart) and the generated
+/// scenario bridges pass an instance to [runContractScenario].
 abstract class LibraryDriver {
   /// Solution name — the column label of reports/tables.
   String get name;
 
-  /// Builds the neutral contract scene: `MaterialApp` (Material 3)
-  /// with `AppBar(title: 'Contract scene')`, a `ListView` of 12 rows (row 5
-  /// = element B, the anchor), a 1200 px scroll margin after the rows, and a
+  /// Builds the neutral contract scene: `MaterialApp` (Material 3) with an
+  /// `AppBar(title: 'Contract scene')`, a `ListView` of 12 rows (row 5 =
+  /// element B, the anchor), a 1200 px scroll margin after the rows, and a
   /// fixed `FloatingActionButton` (element A). Keys and geometry are the
   /// package's constants (scene.dart); [spec.listScroll] must drive the
   /// ListView and element A must increment [SceneSpec.aTaps].
@@ -45,9 +46,9 @@ abstract class LibraryDriver {
   Future<void> hide();
 
   /// Predicate "my work on the current step is finished" — NOT an action.
-  /// The scenario owns pumping: it pumps a frame and polls this
-  /// predicate until the 10 s timeout. Returning true means there is
-  /// nothing more to pump (entrance/exit animation finished, state stable).
+  /// The scenario owns pumping: it pumps a frame and polls this predicate
+  /// until the timeout. Returning true means there is nothing more to pump
+  /// (entrance/exit animation finished, state stable).
   bool isStable();
 
   /// The visible `ContractCard(state)` — the scenario asserts presence,

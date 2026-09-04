@@ -1,3 +1,29 @@
+## 0.2.0
+
+**Smart bench, dumb bridge.** The S1–S7 scenario bodies now live ONCE in
+`lib/scenarios.dart` instead of being copied into every consumer: the
+package depends on `flutter_test` (precedent: golden_toolkit) so the bodies
+can be published as code, not templates. `contract init` copies only ~8-line
+per-scenario **bridges** that wire the consumer's driver into its own test
+process. Consumers physically cannot edit the bodies anymore — a scenario
+change is a package version bump, which makes the anti-tuning property
+stronger. `LibraryDriver` moved into `lib/driver.dart` (public API); the
+consumer's driver stays consumer-side because it imports the solution under
+test.
+
+- `lib/scenarios.dart` — `runContractScenario(id, driver:, idleClasses:)`
+  registers the S1–S7 (+S1r) bodies as tests; protocol constants stay the
+  package's methodology.
+- `templates/` removed; generated files are now the dumb bridges plus the
+  flutter-drive test driver (`test_driver/integration_test.dart`, also
+  generated now).
+- `contract init` re-syncs the manifest's `template:` key (previously it
+  was only a header comment, so `contract verify` could not detect stale
+  generated files); template version bumped to 2.
+- Dead `bin/check_goldens.dart` CLI removed (duplicated `contract run`'s
+  gate); internal extraction-history comments purged from all shipped
+  files.
+
 ## 0.1.0
 
 First release: the generic core of the bench contract, extracted from the
