@@ -1,3 +1,24 @@
+## 0.3.1
+
+**S6 protocol defect fix: per-cycle heap baseline + unphysical-drift guard.**
+On the runner image the first record run wrote `hide_retention` as
+−10.2 MB — an artifact: the shared post-warm-up baseline was inflated by
+~10 MB of still-settling heap garbage that later GCs reclaimed, and the
+one-sided gate (drift ≤ golden + slack) silently accepts any negative
+value, so the broken number became a golden and reached the published
+card.
+
+- `hide_retention` now re-samples its idle floor (`base_i`, median of 3
+  GC reads) **before each measured show**, so the drift is per-cycle
+  (`h_i − base_i`) and a settling floor cancels instead of biasing one
+  shared baseline negative.
+- New two-sided defect guard: a per-cycle drift below −1 MiB (unphysical
+  for a show/hide cycle whose active cost measures in KB) FAILS the
+  scenario with the top retained classes in the failure reason — a broken
+  sample can no longer be recorded as a golden.
+- Scenario bodies live in the package, so consumers need no regeneration:
+  `^0.3.0` resolves pick up 0.3.1 automatically.
+
 ## 0.3.0
 
 **One command runs the whole contract.** S7 `size` stopped being a second

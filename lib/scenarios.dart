@@ -44,6 +44,14 @@ const int _kWarmups = 3;
 /// Measured show/hide cycles of S6 (drift per cycle).
 const int _kMeasuredCycles = 3;
 
+/// Floor below which a per-cycle S6 drift is unphysical (defect of
+/// measurement): a show/hide cycle whose active cost measures in KB cannot
+/// release megabytes — a drift below this means the heap floor moved
+/// mid-cycle (collected garbage), not retention. The scenario FAILS instead
+/// of recording a broken golden (the one-sided gate cannot catch negative
+/// values).
+const int _kUnphysicalDriftBytes = -(1 << 20); // -1 MiB
+
 /// Registers the test body of contract scenario [scenarioId] with
 /// [driver]. Called synchronously from a generated bridge's `main()` —
 /// exactly one scenario per process.
@@ -557,6 +565,11 @@ void _s5ActiveHeap(LibraryDriver driver) {
 /// a tap on element A after hide() must land (no hit-test residue of the
 /// overlay). Heap drift degrades to null under a plain `flutter test` host
 /// run; asserts (b) and (c) always run.
+///
+/// Heap drift is measured per cycle against a freshly re-sampled idle floor
+/// (amended 2026-09-04, defect fix — a shared post-warm-up base biased
+/// negative by megabytes while the floor was still settling), and a drift
+/// below the unphysical floor fails the scenario instead of being recorded.
 void _s6HideRetention(LibraryDriver driver) {
   testWidgets('S6 hide_retention', (tester) async {
     final spec = SceneSpec();
@@ -579,18 +592,27 @@ void _s6HideRetention(LibraryDriver driver) {
     // the FakeAsync zone of a plain `flutter test` run (it would hang the
     // host); real-async contexts (device, integration binding) are unaffected.
     final heap = await tester.runAsync(VmServiceHeap.connect);
-    final base = heap == null ? null : await heap.usedBytesMedian();
 
-    // Measured cycles: show → hide → GC → heap sample; drift per cycle
-    // against the post-warm-up base.
+    // Measured cycles (per-cycle baseline): re-sample the idle floor (median
+    // of 3 quiet GC reads) BEFORE each show, then one post-hide sample after
+    // settle. Drift = post − pre per cycle, so a floor that is still settling
+    // (first-show churn, old-gen pages reclaimed late) cancels out instead of
+    // biasing one shared post-warm-up base negative — measured −10 MB on the
+    // runner image against a shared base (amended 2026-09-04, defect fix).
     final drifts = <int>[];
+    final pres = <int>[];
+    final posts = <int>[];
     for (var i = 0; i < _kMeasuredCycles; i++) {
+      await tester.pumpAndSettle();
+      final pre = heap == null ? null : await heap.usedBytesMedian();
       await _showStable(tester, driver, 1, 'S6');
       await _hideGone(tester, driver, 1, 'S6');
       await tester.pumpAndSettle();
-      final bytes = heap == null ? null : await heap.usedBytes();
-      if (base != null && bytes != null) {
-        drifts.add(bytes - base);
+      final post = heap == null ? null : await heap.usedBytes();
+      if (pre != null && post != null) {
+        pres.add(pre);
+        posts.add(post);
+        drifts.add(post - pre);
       }
     }
 
@@ -611,6 +633,23 @@ void _s6HideRetention(LibraryDriver driver) {
     final driftAvg = drifts.isEmpty
         ? null
         : (drifts.reduce((a, b) => a + b) / drifts.length).round();
+
+    // (C) defect-of-measurement guard (two-sided, not a gate threshold): a
+    // per-cycle drift below the unphysical floor means the heap floor moved
+    // mid-cycle (collected garbage) — the sample is broken, so the scenario
+    // fails loudly with the top retained classes instead of writing a golden
+    // the one-sided regression gate would silently accept.
+    if (driftAvg != null && driftAvg < _kUnphysicalDriftBytes) {
+      final top = heap == null ? const <(String, int)>[] : await heap.topClasses();
+      final topDesc = top.isEmpty
+          ? '(no VM profile)'
+          : top.take(8).map((t) => '${t.$1}=${t.$2}').join(', ');
+      expect(driftAvg >= _kUnphysicalDriftBytes, isTrue,
+          reason: 'S6: per-cycle drift $driftAvg B is unphysically negative '
+              '(floor moved — collected garbage, not retention). pres=$pres '
+              'posts=$posts top: $topDesc');
+    }
+
     if (driftAvg == null) {
       // ignore: avoid_print
       print('S6: no VM service (run with flutter drive --no-dds --profile) '
@@ -619,7 +658,7 @@ void _s6HideRetention(LibraryDriver driver) {
     reportMetric('hide_retention', driftAvg,
         extra: driftAvg == null
             ? const {'status': 'degraded'}
-            : {'drifts_bytes': drifts});
+            : {'drifts_bytes': drifts, 'pres_bytes': pres, 'posts_bytes': posts});
 
     if (heap != null) await heap.dispose();
 
