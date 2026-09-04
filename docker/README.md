@@ -32,6 +32,5 @@ runners have it).
 `.github/workflows/build-runner.yml` builds and pushes the image (manual
 dispatch or a `runner-v*` tag push), tagged by Flutter major.minor. Make
 the GHCR package **public** — a workflow in another repo cannot pull a
-private package. After a rebuild, paste the digest printed in the run
-summary into the tag→digest maps in `action/action.yml` and in any workflow
-that pulls the image inline — the tag is moving, the digest is not.
+private package. After a rebuild, paste the digest printed inthe run summary into the tag→digest map in `action/action.yml` (and in any
+workflow that pulls the image inline) — the tag is moving, the digest is not.

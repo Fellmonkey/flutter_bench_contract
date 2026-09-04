@@ -43,6 +43,21 @@ inputs:
       benchmarks.json next to the manifest).
     required: false
     default: ''
+  commit:
+    description: >-
+      In record mode, commit the published results (commit-patterns) and
+      push using the workflow's GITHUB_TOKEN. Runs on the runner host,
+      never inside the image (the token must not enter the container); the
+      workflow needs contents: write permission. Default: false.
+    required: false
+    default: 'false'
+  commit-patterns:
+    description: >-
+      Git pathspecs (space-separated, relative to the repo root) to commit
+      when commit=true — e.g. your card image and store location. Default:
+      README.md benchmarks.json.
+    required: false
+    default: 'README.md benchmarks.json'
 runs:
   using: composite
   steps:
@@ -84,3 +99,30 @@ runs:
           "$image" \
           ${{ inputs.mode }} --ref ${{ inputs.ref }} \
           --legs ${{ inputs.legs }} "${extra[@]}"
+    # Commit the published results (record mode only). Host-side: pushing
+    # needs the workflow's GITHUB_TOKEN, which must not be passed into the
+    # container. Skips cleanly when nothing changed or patterns match no
+    # files.
+    - name: Commit published results
+      if: ${{ inputs.mode == 'record' && inputs.commit == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        patterns=""
+        for p in ${{ inputs.commit-patterns }}; do
+          [ -e "$p" ] && patterns="$patterns $p"
+        done
+        if [ -z "$patterns" ]; then
+          echo "::warning::commit-patterns matched no files; nothing to commit"
+          exit 0
+        fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        # shellcheck disable=SC2086
+        git add $patterns
+        if git diff --cached --quiet; then
+          echo "bench-contract: nothing changed to commit"
+          exit 0
+        fi
+        git commit -m "bench: publish results (goldens + metrics card)"
+        git push

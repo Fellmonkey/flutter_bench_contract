@@ -141,8 +141,13 @@ runner image (`docker/`) does the whole device run — emulator boot included
 - uses: Fellmonkey/flutter_bench_contract/action@v1
   with:
     flutter: '3.47'   # runner image tag = Flutter version of the goldens
-    mode: check
+    mode: check       # check (gate) | record (write goldens)
     ref: android
+    # record-mode publish: commit card/README/store with the workflow's
+    # GITHUB_TOKEN (host-side, never inside the image). Requires
+    # contents: write permission.
+    commit: false
+    commit-patterns: README.md benchmarks.json   # add your card image path
 ```
 
 Image build and digest-pinning details: `docker/README.md`.
