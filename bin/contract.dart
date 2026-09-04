@@ -33,6 +33,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_bench_contract/charts.dart';
 import 'package:flutter_bench_contract/defs.dart';
 import 'package:flutter_bench_contract/goldens.dart';
 import 'package:flutter_bench_contract/manifest.dart';
@@ -614,6 +615,11 @@ Future<int> cmdRun(List<String> args) async {
   Directory(reportDir).createSync(recursive: true);
   final store = GoldenStore(path: storePath ?? '$root/benchmarks.json');
 
+  // Run artifacts (written once all checks ran): chart points for every
+  // measured metric@ref and the per-metric verdicts of the checks.
+  final chartPoints = <ChartPoint>[];
+  final checkRows = <MetricCheck>[];
+
   var exitFailures = 0;
   var failedEntry = false;
   // --scenarios filters which contract ids run per entry; when the filter
@@ -668,12 +674,17 @@ Future<int> cmdRun(List<String> args) async {
     }
     final measured = samples.keys.toList()..sort();
     stdout.writeln('samples (${entry.name}): $measured (ref=$entryRef, $mode)');
+    for (final m in measured) {
+      chartPoints.add(
+          ChartPoint(m, entryRef, samples[m]!, chartUnitFor(m)));
+    }
 
     if (mode == 'record') {
       store.record(samples, ref: entryRef);
     } else {
-      final failures = store.check(samples, ref: entryRef, slack: slack);
-      if (failures > 0) failedEntry = true;
+      final rows = store.check(samples, ref: entryRef, slack: slack);
+      checkRows.addAll(rows);
+      if (rows.any((r) => r.regression)) failedEntry = true;
     }
   }
 
@@ -716,11 +727,16 @@ Future<int> cmdRun(List<String> args) async {
           '${samples.keys.join(', ')} — expected ${custom.id} (the test must '
           "reportMetric('${custom.id}', value)");
     }
+    final customKeys = samples.keys.toList()..sort();
+    for (final m in customKeys) {
+      chartPoints.add(ChartPoint(m, custom.ref, samples[m]!, chartUnitFor(m)));
+    }
     if (mode == 'record') {
       store.record(samples, ref: custom.ref);
     } else {
-      final failures = store.check(samples, ref: custom.ref, slack: slack);
-      if (failures > 0) failedEntry = true;
+      final rows = store.check(samples, ref: custom.ref, slack: slack);
+      checkRows.addAll(rows);
+      if (rows.any((r) => r.regression)) failedEntry = true;
     }
   }
 
@@ -734,13 +750,37 @@ Future<int> cmdRun(List<String> args) async {
       failedEntry = true;
     } else {
       stdout.writeln('==> size (S7, host builds, legs=$legs)...');
-      final ok = await runSizeLegs(
-          root, manifest.size, mode, ref, legs, store);
+      final ok = await runSizeLegs(root, manifest.size, mode, ref, legs,
+          store, chartPoints: chartPoints, checkRows: checkRows);
       if (!ok) failedEntry = true;
     }
   }
+  _writeRunArtifacts(
+      root: root, mode: mode, points: chartPoints, rows: checkRows);
   if (failedEntry) return 1;
   return exitFailures > 0 ? 1 : 0;
+}
+
+/// Writes the run artifacts under `build/` for the external tooling:
+/// `benchmark-data.json` (github-action-benchmark chart points, any mode)
+/// and `check-report.json` (per-metric verdicts, check mode only).
+void _writeRunArtifacts({
+  required String root,
+  required String mode,
+  required List<ChartPoint> points,
+  required List<MetricCheck> rows,
+}) {
+  final dir = '$root/build';
+  if (points.isNotEmpty) {
+    File('$dir/benchmark-data.json')
+        .writeAsStringSync(chartDataJson(points));
+    stdout.writeln('wrote build/benchmark-data.json '
+        '(${points.length} chart points)');
+  }
+  if (mode == 'check') {
+    File('$dir/check-report.json').writeAsStringSync(checkReportJson(rows));
+    stdout.writeln('wrote build/check-report.json (${rows.length} metrics)');
+  }
 }
 
 // ── size (S7, host builds) ─────────────────────────────────────────────────
@@ -753,14 +793,18 @@ Future<int> cmdRun(List<String> args) async {
 /// measured legs passed (check) or recorded (record); false otherwise.
 ///
 /// [root] is the absolute consumer root; [legs] is native|web|both.
+/// [chartPoints]/[checkRows] collect the run artifacts when given (the CLI
+/// passes its accumulators; tests may omit them).
 Future<bool> runSizeLegs(
   String root,
   SizeConfig? config,
   String mode,
   String ref,
   String legs,
-  GoldenStore store,
-) async {
+  GoldenStore store, {
+  List<ChartPoint>? chartPoints,
+  List<MetricCheck>? checkRows,
+}) async {
   if (config == null || (!config.hasNative && !config.hasWeb)) {
     stderr.writeln('WARN: scenario "size" declared but the `size:` section '
         'declares no leg (native/web) — nothing to measure');
@@ -804,23 +848,27 @@ Future<bool> runSizeLegs(
   final native = measured['native_size'];
   if (native != null) {
     stdout.writeln('samples: native_size=$native (ref=$ref, $mode)');
+    chartPoints?.add(ChartPoint('native_size', ref, native, 'B'));
     if (mode == 'record') {
       store.record({'native_size': native}, ref: ref);
     } else {
-      final failures =
+      final rows =
           store.check({'native_size': native}, ref: ref, slack: 0.05);
-      if (failures > 0) ok = false;
+      checkRows?.addAll(rows);
+      if (rows.any((r) => r.regression)) ok = false;
     }
   }
   final delta = measured['bundle_delta'];
   if (delta != null) {
     stdout.writeln('samples: bundle_delta=$delta (ref=any, $mode)');
+    chartPoints?.add(ChartPoint('bundle_delta', 'any', delta, 'B'));
     if (mode == 'record') {
       store.record({'bundle_delta': delta}, ref: 'any');
     } else {
-      final failures =
+      final rows =
           store.check({'bundle_delta': delta}, ref: 'any', slack: 0.05);
-      if (failures > 0) ok = false;
+      checkRows?.addAll(rows);
+      if (rows.any((r) => r.regression)) ok = false;
     }
   }
   return ok;
@@ -1350,6 +1398,7 @@ int cmdReadme(List<String> args) {
       image: config.image,
       imageAlt: config.imageAlt,
       stamp: config.stamp,
+      chartsUrl: config.chartsUrl,
     ),
     store: store,
   );

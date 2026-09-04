@@ -73,7 +73,8 @@ void main() {
       return store;
     }
 
-    ReadmeContent content({List<ReadmeColumn>? columns}) => ReadmeContent(
+    ReadmeContent content({List<ReadmeColumn>? columns, String? chartsUrl}) =>
+        ReadmeContent(
           title: 'Performance',
           intro: 'One scene, three solutions: the contract scenarios S1–S6 '
               'on a profile emulator plus the host size builds (S7).',
@@ -90,6 +91,7 @@ void main() {
           image: 'docs/hint_metrics.png',
           imageAlt: 'hintful benchmark metrics',
           stamp: '_Recorded {ts}. Regenerate: dispatch the workflow._',
+          chartsUrl: chartsUrl,
         );
 
     test('rows carry both columns; a rival never inherits the host numbers',
@@ -124,6 +126,18 @@ void main() {
       expect(section,
           contains('_Recorded 2026-09-04 12:30 UTC. Regenerate: dispatch '
               'the workflow._'));
+    });
+
+    test('chartsUrl renders a trend-history link only when declared', () {
+      final store = storeWith({'idle_zero': 4});
+      final withCharts = renderReadmeSection(
+          content(chartsUrl: 'https://owner.github.io/repo/bench/'),
+          store: store);
+      expect(withCharts,
+          contains('**Trend history:** '
+              '[charts](https://owner.github.io/repo/bench/)'));
+      expect(renderReadmeSection(content(), store: store),
+          isNot(contains('Trend history')));
     });
 
     test('a metric no column recorded is not a row; format n/a never lies',

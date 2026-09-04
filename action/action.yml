@@ -50,6 +50,30 @@ inputs:
       and the Gradle distribution are not re-downloaded on every dispatch.
     required: false
     default: 'true'
+  comment:
+    description: >-
+      On a check run of a pull request, post (or update) a PR comment with
+      the regressions from build/check-report.json. Our own gate vs the
+      recorded goldens — the chart action's alert feature stays off.
+    required: false
+    default: 'false'
+  charts:
+    description: >-
+      Feed build/benchmark-data.json to benchmark-action/github-action-
+      benchmark (customSmallerIsBetter) and auto-push the trend-charts page
+      to the repo's gh-pages branch (created automatically on first use;
+      Pages must be enabled once — Settings → Pages → Deploy from a branch).
+      One dashboard per consumer repo.
+    required: false
+    default: 'false'
+  charts-name:
+    description: 'Dashboard name of the charts step (benchmark-action `name`).'
+    required: false
+    default: 'contract'
+  charts-dir:
+    description: 'Charts page directory on the gh-pages branch (default: bench).'
+    required: false
+    default: 'bench'
   commit:
     description: >-
       In record mode, commit the published results (commit-patterns) and
@@ -197,3 +221,84 @@ runs:
           /tmp/bench-contract/gradle
           /tmp/bench-contract/pub
         key: ${{ runner.os }}-bench-${{ inputs.flutter }}-${{ inputs.dir }}-${{ steps.cache-key.outputs.hash }}
+    # Regression PR comment (opt-in `comment`): renders the machine-readable
+    # check-report.json the CLI wrote during the check. PRs only; the comment
+    # is upserted on a marker anchor (no duplicates across runs).
+    - name: Comment regressions on PR
+      if: ${{ inputs.comment == 'true' && inputs.mode == 'check' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPORT: ${{ github.workspace }}/${{ inputs.dir }}/build/check-report.json
+      run: |
+        set -euo pipefail
+        [ -f "$REPORT" ] || { echo "::warning::check-report.json not found — nothing to comment"; exit 0; }
+        BODY="$(python3 - "$REPORT" <<'PY'
+        import json, sys
+        d = json.load(open(sys.argv[1]))
+        rows = [m for m in d.get('metrics', []) if m.get('status') == 'regression']
+        if not rows:
+            sys.exit(0)
+        out = ['## Performance regression (bench-contract gate)', '',
+               '| Metric | Ref | Measured | Golden | Δ% |',
+               '|---|---|---|---|---|']
+        for r in rows:
+            out.append(f"| {r['metric']} | {r['ref']} | {r['measured']:,} | {r['golden']:,} | {r.get('deltaPct', '')}% |")
+        print('\n'.join(out))
+        PY
+        )"
+        [ -n "$BODY" ] || { echo "bench-contract: no regressions — no comment"; exit 0; }
+        marker='<!-- bench-contract:regression -->'
+        pr="${{ github.event.pull_request.number }}"
+        comments="repos/${{ github.repository }}/issues/$pr/comments"
+        existing="$(gh api "$comments" --jq '.[] | select(.body | contains("'$marker'")) | .id' | tail -1)"
+        body="$BODY
+        $marker"
+        if [ -n "$existing" ]; then
+          gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f "body=$body" >/dev/null
+        else
+          gh api "$comments" -f "body=$body" >/dev/null
+        fi
+        echo "bench-contract: posted regression comment on PR #$pr"
+    # Trend charts need the gh-pages branch to exist before the chart action
+    # can auto-push to it. Create it once when missing (orphan branch with a
+    # placeholder commit, pure plumbing — no checkout juggling).
+    - name: Ensure charts branch
+      if: ${{ inputs.charts == 'true' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        branch="gh-pages"
+        if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+          echo "bench-contract: charts branch $branch exists"
+          exit 0
+        fi
+        blob="$(printf '# bench-contract charts (auto-generated)\n' | git hash-object -w --stdin)"
+        tree="$(printf '100644 blob %s\tREADME.md\n' "$blob" | git mktree)"
+        commit="$(GIT_AUTHOR_NAME='github-actions[bot]' GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' GIT_COMMITTER_NAME='github-actions[bot]' GIT_COMMITTER_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' git commit-tree "$tree" -m "init $branch for bench-contract charts")"
+        git push origin "$commit:refs/heads/$branch"
+        echo "bench-contract: created charts branch $branch"
+        # Best effort: point Pages at the branch. Needs admin / pages: write
+        # on the token; otherwise tell the user once how to do it by hand.
+        if ! gh api -X POST "repos/${{ github.repository }}/pages" \
+             -f "source[branch]=$branch" -f 'source[path]=/' >/dev/null 2>&1; then
+          echo "::warning::Created $branch, but could not enable Pages via API (needs admin or pages: write). Set Settings → Pages → Deploy from a branch → $branch once."
+        fi
+    # Trend charts (opt-in `charts`): benchmark-action/github-action-
+    # benchmark reads build/benchmark-data.json and pushes the gh-pages
+    # dashboard. The action's own alert features stay off — our golden gate
+    # (exit code / check-report) is the canonical regression signal.
+    - name: Store benchmark charts
+      if: ${{ inputs.charts == 'true' }}
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: ${{ inputs.charts-name }}
+        tool: customSmallerIsBetter
+        output-file-path: ${{ inputs.dir }}/build/benchmark-data.json
+        github-token: ${{ github.token }}
+        auto-push: 'true'
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: ${{ inputs.charts-dir }}
+        fail-on-alert: 'false'
+        comment-on-alert: 'false'

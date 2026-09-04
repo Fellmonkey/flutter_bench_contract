@@ -52,6 +52,7 @@ class ReadmeContent {
     this.image,
     this.imageAlt,
     this.stamp,
+    this.chartsUrl,
   });
 
   /// Heading text (`## $title`).
@@ -76,6 +77,10 @@ class ReadmeContent {
   /// Stamped line under the image; `{ts}` is replaced with the render
   /// timestamp (`2026-09-04 12:34 UTC`). Absent → no stamped line.
   final String? stamp;
+
+  /// URL of the consumer's trend-charts page; rendered as a link under the
+  /// table when present.
+  final String? chartsUrl;
 }
 
 /// Renders the whole README section for [content]: markers, heading,
@@ -131,6 +136,11 @@ String renderReadmeSection(
     ..writeln(rows.join('\n'))
     ..writeln()
     ..writeln(content.footnote.trim());
+  if (content.chartsUrl != null) {
+    buffer
+      ..writeln()
+      ..writeln('**Trend history:** [charts](${content.chartsUrl})');
+  }
   if (content.image != null) {
     buffer
       ..writeln()

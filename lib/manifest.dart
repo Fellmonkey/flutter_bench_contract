@@ -126,6 +126,7 @@ class ReadmeConfig {
     this.image,
     this.imageAlt,
     this.stamp,
+    this.chartsUrl,
   });
 
   /// README file path, relative to the consumer root.
@@ -151,6 +152,10 @@ class ReadmeConfig {
 
   /// Stamped line under the image; `{ts}` replaced at render time.
   final String? stamp;
+
+  /// URL of the consumer's trend-charts page (github-action-benchmark gh-
+  /// pages); rendered as a link under the table when present.
+  final String? chartsUrl;
 }
 
 /// One solution of a multi-library consumer (`libraries:` in the manifest).
@@ -464,6 +469,7 @@ class Manifest {
       image: str(readmeDoc['image']),
       imageAlt: str(readmeDoc['imageAlt']),
       stamp: str(readmeDoc['stamp']),
+      chartsUrl: str(readmeDoc['chartsUrl']),
     );
   }
 }

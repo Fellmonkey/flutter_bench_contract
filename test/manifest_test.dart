@@ -336,6 +336,7 @@ readme:
   image: docs/metrics.png
   imageAlt: benchmark metrics
   stamp: '_Recorded {ts} UTC. Regenerate: dispatch the workflow.'
+  chartsUrl: https://owner.github.io/my_package/bench/
   columns:
     my_package:
       refs: [android, any]
@@ -351,6 +352,7 @@ readme:
       expect(r.image, 'docs/metrics.png');
       expect(r.imageAlt, 'benchmark metrics');
       expect(r.stamp, contains('{ts}'));
+      expect(r.chartsUrl, 'https://owner.github.io/my_package/bench/');
       expect(r.columns, hasLength(2));
       expect(r.columns[0].label, 'my_package');
       expect(r.columns[0].refs, ['android', 'any']);

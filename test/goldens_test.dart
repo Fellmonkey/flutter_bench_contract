@@ -98,31 +98,62 @@ void main() {
       }, ref: 'android');
     });
 
+    int regressions(Map<String, num> measured,
+            {String ref = 'android', double slack = 0.3}) =>
+        store.check(measured, ref: ref, slack: slack)
+            .where((r) => r.regression)
+            .length;
+
     test('passes better or equal values', () {
-      expect(store.check({'fast': 90}, ref: 'android'), 0);
+      expect(regressions({'fast': 90}), 0);
       // limit = ceil(100 * 0.3) = 30 → value == golden + limit still passes.
-      expect(store.check({'slow': 130}, ref: 'android'), 0);
+      expect(regressions({'slow': 130}), 0);
     });
 
     test('fails only when worse than the golden by more than the slack', () {
-      expect(store.check({'slow': 131}, ref: 'android'), 1);
-      expect(store.check({'fast': 131}, ref: 'android'), 1);
+      expect(regressions({'slow': 131}), 1);
+      expect(regressions({'fast': 131}), 1);
     });
 
     test('respects a custom slack', () {
       // slack 0.1 → limit 10: 115 > 110 fails, 110 passes.
-      expect(store.check({'slow': 115}, ref: 'android', slack: 0.1), 1);
-      expect(store.check({'slow': 110}, ref: 'android', slack: 0.1), 0);
+      expect(regressions({'slow': 115}, slack: 0.1), 1);
+      expect(regressions({'slow': 110}, slack: 0.1), 0);
     });
 
     test('a missing golden warns but does not fail', () {
-      expect(store.check({'unrecorded': 1}, ref: 'android'), 0);
+      expect(regressions({'unrecorded': 1}), 0);
     });
 
     test('falls back to the any ref when the requested ref has no golden', () {
       store.record({'any_only': 100}, ref: 'any');
-      expect(store.check({'any_only': 500}, ref: 'new-device'), 1);
-      expect(store.check({'any_only': 90}, ref: 'new-device'), 0);
+      expect(regressions({'any_only': 500}, ref: 'new-device'), 1);
+      expect(regressions({'any_only': 90}, ref: 'new-device'), 0);
+    });
+
+    test('rows carry metric/measured/golden/limit and the delta percent', () {
+      final rows = store.check({'slow': 130}, ref: 'android');
+      final row = rows.single;
+      expect(row.metric, 'slow');
+      expect(row.measured, 130);
+      expect(row.golden, 100);
+      expect(row.limit, 30);
+      expect(row.noGolden, isFalse);
+      expect(row.regression, isFalse);
+      expect(row.deltaPct, 30);
+      // Worse than golden + slack → flagged regression with a positive delta.
+      final reg = store.check({'slow': 150}, ref: 'android').single;
+      expect(reg.regression, isTrue);
+      expect(reg.deltaPct, 50);
+    });
+
+    test('a missing golden reports noGolden and null limit/delta', () {
+      final row = store.check({'absent_metric': 1}, ref: 'android').single;
+      expect(row.noGolden, isTrue);
+      expect(row.golden, isNull);
+      expect(row.limit, isNull);
+      expect(row.deltaPct, isNull);
+      expect(row.regression, isFalse);
     });
   });
 }

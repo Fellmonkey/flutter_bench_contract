@@ -25,6 +25,56 @@ import 'dart:io';
 /// Default store file name, in one place.
 const String goldensPath = 'benchmarks.json';
 
+/// One metric's verdict against its recorded golden (regression gate).
+/// Every metric is lower-is-better; a metric with no recorded golden under
+/// [ref] or `any` is reported as [noGolden] (a check before the first
+/// record — warned, not failed).
+class MetricCheck {
+  const MetricCheck({
+    required this.metric,
+    required this.ref,
+    required this.measured,
+    required this.golden,
+    required this.limit,
+    required this.slack,
+  });
+
+  /// Metric key (scenario id).
+  final String metric;
+
+  /// Reference the golden was looked up under (falls back to `any`).
+  final String ref;
+
+  /// Measured median of this run.
+  final num measured;
+
+  /// Recorded golden under [ref] or `any`, or null when none exists.
+  final num? golden;
+
+  /// One-sided gate bound = ceil(|golden * slack|) clamped to ≥ 1.
+  /// Null when there is no golden.
+  final num? limit;
+
+  /// Slack fraction used for the gate.
+  final double slack;
+
+  /// True when this metric was measured but has no recorded golden yet.
+  bool get noGolden => golden == null || limit == null;
+
+  /// Regression: measured worse than the golden by more than the slack.
+  bool get regression =>
+      !noGolden && measured > (golden! + limit!);
+
+  /// Signed percent the measured value deviates from the golden
+  /// ((measured − golden) / golden × 100, one decimal), null without a
+  /// golden.
+  num? get deltaPct {
+    final g = golden;
+    if (g == null || g == 0) return null;
+    return double.parse(((measured - g) / g * 100).toStringAsFixed(1));
+  }
+}
+
 /// The `benchmarks.json` store: reads recorded goldens, checks measured
 /// samples against them (regression gate) and records new ones.
 class GoldenStore {
@@ -104,9 +154,10 @@ class GoldenStore {
   /// passes. Missing goldens (a check before any record) print a warning and
   /// do not fail — the first recording on a reference establishes them.
   ///
-  /// Prints one line per metric and a summary. Returns the number of
-  /// regressions (0 = pass).
-  int check(
+  /// Prints one line per metric and a summary. Returns one [MetricCheck] per
+  /// measured metric — regressions are the rows where [MetricCheck.regression]
+  /// is true; the number of regressions was the previous return value.
+  List<MetricCheck> check(
     Map<String, num> measured, {
     required String ref,
     double slack = 0.3,
@@ -118,7 +169,7 @@ class GoldenStore {
     final metrics =
         (doc['metrics'] as Map<String, dynamic>).cast<String, Object?>();
 
-    var failures = 0;
+    final rows = <MetricCheck>[];
     final keys = measured.keys.toList()..sort();
     for (final metric in keys) {
       final value = measured[metric]!;
@@ -126,28 +177,38 @@ class GoldenStore {
       final goldens =
           metricDoc?['goldens'] as Map<String, dynamic>? ?? const {};
       final golden = goldens[ref] ?? goldens['any'];
-      if (golden == null) {
+      final g = golden as num?;
+      final limit = g == null
+          ? null
+          : (g * slack).abs().ceil().clamp(1, 1 << 62);
+      rows.add(MetricCheck(
+        metric: metric,
+        ref: ref,
+        measured: value,
+        golden: g,
+        limit: limit,
+        slack: slack,
+      ));
+      if (g == null) {
         stdout.writeln('  $metric: no golden under ref "$ref" — run '
             '"--record" once on the reference to establish it');
         continue;
       }
-      final g = golden as num;
-      final limit = (g * slack).abs().ceil().clamp(1, 1 << 62);
-      if (value > g + limit) {
+      if (value > g + limit!) {
         stderr.writeln('  FAIL $metric: measured $value, golden $g '
             '(worse by more than ${slack * 100}%)');
-        failures++;
       } else {
         stdout.writeln('  $metric: $value ≤ golden $g + ${slack * 100}% '
             '(regression gate)');
       }
     }
+    final failures = rows.where((r) => r.regression).length;
     if (failures > 0) {
       stderr.writeln('REGRESSION: $failures metric(s) outside the golden '
           'envelope');
     } else {
       stdout.writeln('OK: all measured metrics within their goldens');
     }
-    return failures;
+    return rows;
   }
 }
