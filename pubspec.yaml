@@ -1,10 +1,8 @@
 name: flutter_bench_contract
 description: >-
-  A performance contract for Flutter overlay/widget solutions: canonical
-  device scenarios (idle cost, show/update latency, scroll coupling, heap
-  retention, size), a one-sided golden gate, and published results — as a
-  reusable package.
-version: 0.3.3
+  Device performance scenarios and a regression golden gate for Flutter
+  overlay and widget solutions — as a reusable package.
+version: 0.3.4
 
 repository: https://github.com/Fellmonkey/flutter_bench_contract
 topics:

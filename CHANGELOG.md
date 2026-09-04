@@ -1,3 +1,7 @@
+## 0.3.4
+
+- **pub.dev score fixes.** Description trimmed to 125 chars; `example/README.md` added
+
 ## 0.3.3
 
 - **S5 protocol defect fix (mirrors S6).** `active_heap` re-samples the
