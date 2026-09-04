@@ -4,7 +4,7 @@ description: >-
   device scenarios (idle cost, show/update latency, scroll coupling, heap
   retention, size), a one-sided golden gate, and published results — as a
   reusable package.
-version: 0.2.0
+version: 0.3.0
 
 repository: https://github.com/Fellmonkey/flutter_bench_contract
 topics:

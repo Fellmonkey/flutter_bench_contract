@@ -1,3 +1,20 @@
+## 0.3.0
+
+**One command runs the whole contract.** S7 `size` stopped being a second
+CLI verb — it was already a scenario in the registry, the manifest
+(`scenarios: [..., size]`) and the store, but `contract run` dead-ended on
+it ("run `contract size` instead"). Now `contract run` executes the size
+legs itself, once per manifest, when `size` is selected:
+
+- `contract size` removed; `run` gained `--legs native|web|both` (default
+  `both`) so the device-free web leg still runs in plain CI without the
+  emulator job.
+- Size metrics keep their OWN golden refs inside `run`: `bundle_delta` is
+  SDK-pinned under `any`; `native_size` follows the invocation ref (the
+  docker dispatch records it under `android`).
+- The runner-image entrypoint collapsed to one `contract run` invocation
+  (device scenarios + native size leg); card/readme renders unchanged.
+
 ## 0.2.0
 
 **Smart bench, dumb bridge.** The S1–S7 scenario bodies now live ONCE in

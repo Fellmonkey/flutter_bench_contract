@@ -36,9 +36,9 @@ const List<MetricDef> kDeviceMetricDefs = [
   MetricDef('hide_retention', 'Heap retained after hide (S6)', 'B'),
 ];
 
-/// Host-size metrics (release builds, no device) — S7, run by `contract
-/// size`. `bundle_delta` is SDK-pinned under ref `any`; `native_size` under
-/// `any` + `android`.
+/// Host-size metrics (release builds, no device) — S7, a scenario of
+/// `contract run` like the rest. `bundle_delta` is SDK-pinned under ref
+/// `any`; `native_size` under `any` + `android`.
 const List<MetricDef> kSizeMetricDefs = [
   MetricDef('native_size', 'Native AOT size', 'B'),
   MetricDef('bundle_delta', 'Web startup bundle delta', 'B'),

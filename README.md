@@ -138,8 +138,7 @@ idleClasses: [MyController, MyRegistry]   # S1r per-class counting
 | Command | What it does |
 |---|---|
 | `init` | Scaffold `bench_contract.yaml` + the `bench/contract/` scenario bridges + a driver skeleton when missing. `--force` regenerates (and re-syncs the manifest's `template:` key). |
-| `run` | Run the manifest's scenarios and check/record goldens. Host (`flutter test`) without `--device`; `flutter drive --no-dds --profile` with one. Options: `--mode check\|record`, `--ref`, `--slack`, `--scenarios`, `--library`. |
-| `size` | S7 host size builds from the manifest `size:` section. `--legs native\|web\|both`. |
+| `run` | Run the manifest's scenarios and check/record goldens. S1–S6 run as `flutter test` (host) or `flutter drive --no-dds --profile` (`--device`); the S7 size legs are host release builds (`size:` section) — pick them with `--legs native\|web\|both`. Options: `--mode check\|record`, `--ref`, `--slack`, `--scenarios`, `--library`. |
 | `card` | Render the metrics-card PNG from the recorded goldens (manifest `card:`). |
 | `readme` | Render the README section (manifest `readme:`) between its `<!-- bench:start/end -->` markers. |
 | `verify` | Manifest/template/driver consistency. |

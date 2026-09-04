@@ -1,17 +1,19 @@
 // The bench-contract CLI: scaffolding a consumer (init), running the
-// declared scenarios against the golden store (run — check or record), the
-// S7 host size builds (size) and the published-results machinery (card:
-// the metrics-card PNG; readme: the root-README section).
+// declared scenarios against the golden store (run — check or record; the
+// S7 host size builds are a scenario like the rest and run inside `run`)
+// and the published-results machinery (card: the metrics-card PNG; readme:
+// the root-README section).
 //
 //   init   — generate the consumer contract files (per-scenario bridges —
 //            the smart bodies live in lib/scenarios.dart — the flutter-drive
 //            test driver, and a driver skeleton when missing) and write
 //            bench_contract.yaml.
-//   run    — run the manifest's declared scenarios (flutter drive --profile
-//            on a device, or flutter test on the host when no --device is
-//            given) into build/contract_report.jsonl, then check the
-//            samples against the recorded goldens or record them.
-//   size   — S7: the host size builds (contract size), check/record.
+//   run    — run the manifest's declared scenarios and check/record the
+//            samples against the recorded goldens. S1–S6 execute as flutter
+//            drive --profile on a device (or flutter test on the host when
+//            no --device is given) into build/contract_*.jsonl; the S7 size
+//            legs are host release builds run once per manifest (--legs
+//            native|web|both). Custom scenarios run under their own refs.
 //   card   — render the manifest `card:` metrics-card PNG from the recorded
 //            goldens (fonts ensured, flutter-test golden render, copy to
 //            the configured output path).
@@ -24,7 +26,7 @@
 //   dart run flutter_bench_contract:contract init [--force] [--scenarios a,b]
 //   dart run flutter_bench_contract:contract run [--device <id>]
 //       [--mode check|record] [--ref android] [--slack 0.3] [--scenarios ...]
-//   dart run flutter_bench_contract:contract size [--legs native|web|both] ...
+//       [--legs native|web|both]
 //   dart run flutter_bench_contract:contract card
 //   dart run flutter_bench_contract:contract readme
 //   dart run flutter_bench_contract:contract verify
@@ -192,15 +194,16 @@ int cmdInit(List<String> args) {
   // Scenario bridges: an existing manifest's declared set is preserved
   // unless --scenarios overrides it (otherwise --force would silently drop
   // scenarios the consumer added). S7 has no bridge — it is the host size
-  // builds (`contract size`), configured by the manifest `size:` section.
+  // builds (`size:` section), executed by `contract run` with the other
+  // scenarios.
   final wanted = scenarios ?? existingManifest?.scenarios ?? kDefaultScenarios;
   final declared = <String>[];
   for (final id in wanted) {
     final bridgeName = _kScenarioTemplates[id];
     if (bridgeName == null) {
       if (id == 'size') {
-        stdout.writeln('  size: host build — declare a `size:` section and '
-            'run `contract size`');
+        stdout.writeln('  size: host builds — declare a `size:` section '
+            '(runs with `contract run`, --legs native|web|both)');
         declared.add(id);
       } else {
         stdout.writeln('  unknown scenario "$id" — skipped');
@@ -255,7 +258,7 @@ scenarios: [${declared.join(', ')}]
 #     driver: bench/drivers/scv_driver.dart
 #     driverClass: ScvDriver
 #
-# S7 size (host release builds, no device; run `contract size`):
+# S7 size (host release builds, no device; runs inside `contract run`):
 #   size:
 #     native:                       # one apk --analyze-size build
 #       package: <pub-package>      # subtree summed in the code-size tree
@@ -363,9 +366,9 @@ int _cmdInitMultiLibrary(String root, bool force, List<String>? scenarios,
       final templateName = _kScenarioTemplates[id];
       if (templateName == null) {
         if (id == 'size') {
-          // See cmdInit: size is the host build, no per-library test file.
-          stdout.writeln('  size: host build — declare a `size:` section and '
-              'run `contract size`');
+          // Size is a host build, no per-library test file — see cmdInit.
+          stdout.writeln('  size: host builds — runs with `contract run` '
+              '(--legs native|web|both)');
         } else {
           stdout.writeln('  unknown scenario "$id" — skipped');
         }
@@ -493,7 +496,7 @@ int cmdVerify(List<String> args) {
       if (templateName == null) {
         if (id == 'size') {
           // S7 has no template file: it is the manifest `size:` section
-          // (verified below), run by `contract size`.
+          // (verified below), executed by `contract run`.
           continue;
         }
         stderr.writeln('WARN: scenario "$id" has no template in v'
@@ -516,8 +519,17 @@ int cmdVerify(List<String> args) {
   }
   // size: config shape — a declared native leg needs a package, a web leg
   // needs both entry targets (the files are the consumer's own app targets,
-  // existence is checked when `contract size` actually builds).
+  // existence is checked when `contract run` actually builds).
   final size = manifest.size;
+  final sizeDeclared = manifest.scenarios.contains('size');
+  if (sizeDeclared && size == null) {
+    stderr.writeln('FAIL: scenario "size" is listed but there is no `size:` '
+        'section — `contract run` would refuse to measure it');
+    ok = false;
+  } else if (size != null && !sizeDeclared) {
+    stderr.writeln('WARN: `size:` section declared but "size" is not in '
+        '`scenarios:` — the legs never run; add it or drop the section');
+  }
   if (size != null) {
     if (size.hasNative && size.nativePackage!.isEmpty) {
       stderr.writeln('FAIL: size.native needs a package: (the pub package '
@@ -549,6 +561,7 @@ Future<int> cmdRun(List<String> args) async {
   List<String>? only;
   String? onlyLibrary;
   String? storePath;
+  var legs = 'both'; // S7 size legs: native | web | both
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--dir':
@@ -567,10 +580,16 @@ Future<int> cmdRun(List<String> args) async {
         onlyLibrary = args[++i];
       case '--store':
         storePath = args[++i];
+      case '--legs':
+        legs = args[++i];
     }
   }
   if (mode != 'check' && mode != 'record') {
     stderr.writeln('FAIL: --mode must be check|record');
+    return 2;
+  }
+  if (!{'native', 'web', 'both'}.contains(legs)) {
+    stderr.writeln('FAIL: --legs must be native|web|both');
     return 2;
   }
   // Absolute root (POSIX separators — dart:io and the flutter subprocess
@@ -607,9 +626,8 @@ Future<int> cmdRun(List<String> args) async {
     for (final id in requestedContract) {
       final templateName = _kScenarioTemplates[id];
       if (templateName == null) {
-        if (id == 'size') {
-          stdout.writeln('  size: host build — run `contract size` instead');
-        }
+        // `size` is not per-library (no bridge): it is a manifest-level
+        // host build, run once after the entries (see below).
         continue;
       }
       final targetRel = '${manifest.dirFor(entry)}/$templateName';
@@ -699,61 +717,49 @@ Future<int> cmdRun(List<String> args) async {
       if (failures > 0) failedEntry = true;
     }
   }
+
+  // S7 size legs: manifest-level (not per library), host release builds,
+  // run once when `size` is among the selected scenarios. Per-metric golden
+  // refs (bundle_delta under `any`, native_size under the invocation ref).
+  if (requestedContract.contains('size')) {
+    if (manifest.size == null) {
+      stderr.writeln('FAIL: scenario "size" selected but the manifest has no '
+          '`size:` section — declare the S7 legs (native/web) under `size:`');
+      failedEntry = true;
+    } else {
+      stdout.writeln('==> size (S7, host builds, legs=$legs)...');
+      final ok = await runSizeLegs(
+          root, manifest.size, mode, ref, legs, store);
+      if (!ok) failedEntry = true;
+    }
+  }
   if (failedEntry) return 1;
   return exitFailures > 0 ? 1 : 0;
 }
 
 // ── size (S7, host builds) ─────────────────────────────────────────────────
 
-/// Runs the S7 size measurement (`contract size`): the release host builds
-/// declared in the manifest's `size:` section, then checks or records the
-/// samples against the golden store. No device, no driver, no test target —
-/// sizes are SDK+ABI-pinned, so the golden ref is `any` by default (the
-/// caller picks the ref: hintful records native under `android` in the
-/// dispatch, bundle_delta under `any` in the bundle CI job).
+/// Runs the S7 size legs of the manifest's `size:` section: the release
+/// host builds (no device, no driver, no test target), then records or
+/// checks each metric under its OWN golden ref — `bundle_delta` is
+/// SDK-pinned under `any`; `native_size` follows the invocation ref (the
+/// docker dispatch records it under `android`). Returns true when all
+/// measured legs passed (check) or recorded (record); false otherwise.
 ///
-/// Exit code: 0 ok / 1 regression or failed build / 2 usage or config.
-Future<int> cmdSize(List<String> args) async {
-  var root = '.';
-  var mode = 'check';
-  var ref = 'any';
-  double slack = 0.05; // size: tight 5% (deterministic host builds)
-  String? storePath;
-  var legs = 'both'; // native | web | both
-  for (var i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case '--dir':
-        root = args[++i];
-      case '--mode':
-        mode = args[++i];
-      case '--ref':
-        ref = args[++i];
-      case '--slack':
-        slack = double.parse(args[++i]);
-      case '--store':
-        storePath = args[++i];
-      case '--legs':
-        legs = args[++i];
-    }
-  }
-  if (mode != 'check' && mode != 'record') {
-    stderr.writeln('FAIL: --mode must be check|record');
-    return 2;
-  }
-  if (!{'native', 'web', 'both'}.contains(legs)) {
-    stderr.writeln('FAIL: --legs must be native|web|both');
-    return 2;
-  }
-  root = File(root).absolute.path.replaceAll('\\', '/');
-  final manifest = Manifest.load(root);
-  final config = manifest.size;
+/// [root] is the absolute consumer root; [legs] is native|web|both.
+Future<bool> runSizeLegs(
+  String root,
+  SizeConfig? config,
+  String mode,
+  String ref,
+  String legs,
+  GoldenStore store,
+) async {
   if (config == null || (!config.hasNative && !config.hasWeb)) {
-    stderr.writeln('FAIL: no `size:` section in $root/$kManifestFileName — '
-        'declare the S7 legs (native/web) under `size:`');
-    return 2;
+    stderr.writeln('WARN: scenario "size" declared but the `size:` section '
+        'declares no leg (native/web) — nothing to measure');
+    return true;
   }
-
-  final store = GoldenStore(path: storePath ?? '$root/benchmarks.json');
   final measured = <String, num>{};
   var buildFailed = false;
 
@@ -775,23 +781,43 @@ Future<int> cmdSize(List<String> args) async {
   }
   if (buildFailed) {
     stderr.writeln('FAIL: size build failed — see output above');
-    return 1;
+    return false;
   }
   if (measured.isEmpty) {
+    // Explicit --legs that matches no declared leg is a config error, not a
+    // silent pass (the old `contract size` failed here too).
     stderr.writeln('FAIL: no size leg measured (legs=$legs, declared: '
-        'native=${config.hasNative}, web=${config.hasWeb})');
-    return 1;
+        'native=${config.hasNative}, web=${config.hasWeb}) — check --legs '
+        'against the manifest `size:` section');
+    return false;
   }
 
-  final keys = measured.keys.toList()..sort();
-  stdout.writeln('samples: $keys (ref=$ref, $mode)');
-  if (mode == 'record') {
-    store.record(measured, ref: ref);
-  } else {
-    final failures = store.check(measured, ref: ref, slack: slack);
-    if (failures > 0) return 1;
+  // Per-metric golden refs (defs.dart): bundle_delta is SDK-pinned under
+  // `any`, native_size follows the invocation ref.
+  var ok = true;
+  final native = measured['native_size'];
+  if (native != null) {
+    stdout.writeln('samples: native_size=$native (ref=$ref, $mode)');
+    if (mode == 'record') {
+      store.record({'native_size': native}, ref: ref);
+    } else {
+      final failures =
+          store.check({'native_size': native}, ref: ref, slack: 0.05);
+      if (failures > 0) ok = false;
+    }
   }
-  return 0;
+  final delta = measured['bundle_delta'];
+  if (delta != null) {
+    stdout.writeln('samples: bundle_delta=$delta (ref=any, $mode)');
+    if (mode == 'record') {
+      store.record({'bundle_delta': delta}, ref: 'any');
+    } else {
+      final failures =
+          store.check({'bundle_delta': delta}, ref: 'any', slack: 0.05);
+      if (failures > 0) ok = false;
+    }
+  }
+  return ok;
 }
 
 /// Native leg: one release `flutter build apk --analyze-size` of the app
@@ -1087,8 +1113,7 @@ Future<int> cmdCard(List<String> args) async {
   }
   if (rows.isEmpty) {
     stderr.writeln('FAIL: no recorded values in $root/benchmarks.json to '
-        'render — run `contract run --mode record` (and `contract size`) '
-        'on the reference first');
+        'render — run `contract run --mode record` on the reference first');
     return 1;
   }
 
@@ -1329,10 +1354,6 @@ usage: dart run flutter_bench_contract:contract <command> [options]
            consumer scenarios under their own refs) and check/record goldens
            [--dir ROOT] [--device ID] [--mode check|record] [--ref android]
            [--slack 0.3] [--scenarios subset] [--library NAME]
-           [--store PATH]
-  size     S7: run the host size builds declared in the manifest `size:`
-           section and check/record their goldens
-           [--dir ROOT] [--mode check|record] [--ref any] [--slack 0.05]
            [--legs native|web|both] [--store PATH]
   card     render the metrics-card PNG (manifest `card:` + recorded
            goldens; fonts ensured, golden render, copy to the `out:` path)
@@ -1355,7 +1376,6 @@ Future<void> main(List<String> args) async {
     'init' => cmdInit(args.sublist(1)),
     'verify' => cmdVerify(args.sublist(1)),
     'run' => await cmdRun(args.sublist(1)),
-    'size' => await cmdSize(args.sublist(1)),
     'card' => await cmdCard(args.sublist(1)),
     'readme' => cmdReadme(args.sublist(1)),
     _ => usage(),

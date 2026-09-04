@@ -16,9 +16,9 @@
 //             main.dart.js. Metric id: `bundle_delta`.
 //
 // The driver-facing orchestration (flutter subprocesses, golden check /
-// record) lives in bin/contract.dart (`contract size`); this module holds
-// the config model and the output parsers, so the byte-arithmetic is
-// unit-testable without any build.
+// record) lives in bin/contract.dart (the S7 phase of `contract run`);
+// this module holds the config model and the output parsers, so the
+// byte-arithmetic is unit-testable without any build.
 import 'dart:convert';
 
 /// Config of the optional `size:` manifest section (S7). Each leg is
