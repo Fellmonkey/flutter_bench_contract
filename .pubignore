@@ -1,0 +1,8 @@
+doc/
+docker/
+action/
+build/
+
+# IDE/editor junk.
+*.iml
+.idea/
