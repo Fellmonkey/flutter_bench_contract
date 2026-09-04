@@ -1,3 +1,11 @@
+## 0.3.3
+
+- **S5 protocol defect fix (mirrors S6).** `active_heap` re-samples the
+  idle floor before each of 3 measured shows (mean of per-cycle deltas); a
+  delta below the −1 MiB unphysical floor fails instead of recording — one
+  rival ref had recorded −10 MB from the shared-floor artifact. Re-record
+  all refs.
+
 ## 0.3.2
 
 - **S1r published metric.** Declared `idleClasses:` → max per-class delta

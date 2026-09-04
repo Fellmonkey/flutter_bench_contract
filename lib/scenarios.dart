@@ -41,13 +41,13 @@ const int _kState = 1;
 /// Warm-up cycles before heap/instance sampling (S1r/S5/S6).
 const int _kWarmups = 3;
 
-/// Measured show/hide cycles of S6 (drift per cycle).
+/// Measured show/hide cycles of S5/S6 (per-cycle heap baseline).
 const int _kMeasuredCycles = 3;
 
-/// Floor below which a per-cycle S6 drift is unphysical (defect of
-/// measurement): a show/hide cycle whose active cost measures in KB cannot
-/// release megabytes — a drift below this means the heap floor moved
-/// mid-cycle (collected garbage), not retention. The scenario FAILS instead
+/// Floor below which a per-cycle S5/S6 heap delta is unphysical (defect of
+/// measurement): an idle→show step whose cost measures in KB cannot
+/// release megabytes — a delta below this means the heap floor moved while
+/// sampling (collected garbage), not retention. The scenario FAILS instead
 /// of recording a broken golden (the one-sided gate cannot catch negative
 /// values).
 const int _kUnphysicalDriftBytes = -(1 << 20); // -1 MiB
@@ -485,6 +485,12 @@ void _s4ScrollCoupled(LibraryDriver driver) {
 /// Needs the VM service (`flutter drive --no-dds --profile`); under a plain
 /// `flutter test` host run the sample degrades to null and only the
 /// "content shown" assert runs.
+///
+/// Measured per cycle against a freshly re-sampled idle floor (amended
+/// 2026-09-04, defect fix mirroring S6 — one shared post-warm-up sample
+/// biased the delta negative by megabytes while the floor was still
+/// settling), and a delta below the unphysical floor fails the scenario
+/// instead of being recorded.
 void _s5ActiveHeap(LibraryDriver driver) {
   testWidgets('S5 active_heap', (tester) async {
     final spec = SceneSpec();
@@ -494,7 +500,7 @@ void _s5ActiveHeap(LibraryDriver driver) {
     await tester.pumpAndSettle();
 
     // Warm-up (methodology): M show→hide cycles settle caches, so the
-    // measured "idle" and "active" points are post-warm-up states.
+    // measured points are post-warm-up states.
     for (var i = 0; i < _kWarmups; i++) {
       await _showStable(tester, driver, 1, 'S5');
       await _hideGone(tester, driver, 1, 'S5');
@@ -505,28 +511,53 @@ void _s5ActiveHeap(LibraryDriver driver) {
     // the FakeAsync zone of a plain `flutter test` run (it would hang the
     // host); real-async contexts (device, integration binding) are unaffected.
     final heap = await tester.runAsync(VmServiceHeap.connect);
-    int? idleBytes;
-    int? activeBytes;
-    if (heap != null) {
-      // Idle point: nothing shown, GC'd, median of 3 snapshots.
-      await _hideGone(tester, driver, 1, 'S5');
-      await tester.pumpAndSettle();
-      idleBytes = await heap.usedBytesMedian(samples: 3);
 
-      // Active point: content shown and stable, GC'd, median of 3 — and the
-      // delta must measure an actually shown state (S2's assert re-checked).
+    // Measured cycles (per-cycle baseline, amended 2026-09-04): re-sample
+    // the idle floor (median of 3 quiet GC reads) immediately BEFORE each
+    // show, then the active point after settle, so a floor still settling
+    // after the warm-up churn cancels per cycle instead of biasing one
+    // shared post-warm-up sample negative (measured −10 MB for a rival ref
+    // against a shared floor).
+    final deltas = <int>[];
+    final idles = <int>[];
+    final actives = <int>[];
+    for (var i = 0; i < _kMeasuredCycles; i++) {
+      await tester.pumpAndSettle();
+      final idle = heap == null ? null : await heap.usedBytesMedian();
       await _showStable(tester, driver, 1, 'S5');
       await tester.pumpAndSettle();
       expect(driver.currentContent(1).evaluate().isNotEmpty, isTrue,
           reason: 'S5: content not visible at the active heap point');
-      activeBytes = await heap.usedBytesMedian(samples: 3);
-
-      await heap.dispose();
+      final active = heap == null ? null : await heap.usedBytesMedian();
+      if (idle != null && active != null) {
+        idles.add(idle);
+        actives.add(active);
+        deltas.add(active - idle);
+      }
+      await _hideGone(tester, driver, 1, 'S5');
     }
 
-    final delta = (idleBytes == null || activeBytes == null)
+    final delta = deltas.isEmpty
         ? null
-        : activeBytes - idleBytes;
+        : (deltas.reduce((a, b) => a + b) / deltas.length).round();
+
+    // Defect-of-measurement guard (two-sided, not a gate threshold): a
+    // delta below the unphysical floor means the idle sample was inflated
+    // by heap still settling — the sample is broken, so the scenario fails
+    // loudly with the top retained classes instead of recording a golden
+    // the one-sided regression gate would silently accept.
+    if (delta != null && delta < _kUnphysicalDriftBytes) {
+      final top =
+          heap == null ? const <(String, int)>[] : await heap.topClasses();
+      final topDesc = top.isEmpty
+          ? '(no VM profile)'
+          : top.take(8).map((t) => '${t.$1}=${t.$2}').join(', ');
+      expect(delta >= _kUnphysicalDriftBytes, isTrue,
+          reason: 'S5: active − idle $delta B is unphysically negative '
+              '(idle floor inflated by settling heap). idles=$idles '
+              'actives=$actives top: $topDesc');
+    }
+
     if (delta == null) {
       // ignore: avoid_print
       print('S5: no VM service (run with flutter drive --no-dds --profile) '
@@ -536,14 +567,12 @@ void _s5ActiveHeap(LibraryDriver driver) {
         extra: delta == null
             ? const {'status': 'degraded'}
             : {
-                // delta != null ⇒ both samples exist; ?? 0 keeps the map
-                // literal non-nullable without flow analysis across the
-                // ternary.
-                'idle_bytes': idleBytes ?? 0,
-                'active_bytes': activeBytes ?? 0,
+                'deltas_bytes': deltas,
+                'idle_bytes': idles,
+                'active_bytes': actives,
               });
 
-    await _hideGone(tester, driver, 1, 'S5');
+    if (heap != null) await heap.dispose();
 
     await _asyncTeardownSettle(tester);
   });
