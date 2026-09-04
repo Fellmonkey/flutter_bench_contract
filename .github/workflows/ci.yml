@@ -4,8 +4,6 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ['*']
-    tags-ignore: ['runner-v*'] # the image build has its own workflow
 
 permissions:
   contents: read
