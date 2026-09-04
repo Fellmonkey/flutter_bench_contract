@@ -43,6 +43,13 @@ inputs:
       benchmarks.json next to the manifest).
     required: false
     default: ''
+  cache:
+    description: >-
+      Cache the Gradle + pub caches across runs: host dirs mounted into the
+      container at ~/.gradle and ~/.pub-cache, so Android build dependencies
+      and the Gradle distribution are not re-downloaded on every dispatch.
+    required: false
+    default: 'true'
   commit:
     description: >-
       In record mode, commit the published results (commit-patterns) and
@@ -71,6 +78,34 @@ runs:
     # Tag → image digest pin. A rebuild of the same tag must not change a
     # consumer's run silently: add/update the row here, then release a new
     # action tag. The digest is printed by the build-runner workflow.
+    # Cache key: flutter version + consumer + a hash of the consumer's
+    # dependency pins, so a lockfile bump gets a fresh cache instead of a
+    # silently stale restore.
+    - name: Cache key hash
+      id: cache-key
+      shell: bash
+      run: |
+        files=""
+        for f in pubspec.yaml pubspec.lock android/gradle/wrapper/gradle-wrapper.properties; do
+          [ -f "${{ inputs.dir }}/$f" ] && files="$files ${{ inputs.dir }}/$f"
+        done
+        if [ -n "$files" ]; then
+          # shellcheck disable=SC2086
+          echo "hash=$(git hash-object $files | md5sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        else
+          echo "hash=none" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Restore Gradle/pub cache
+      id: cache-restore
+      if: ${{ inputs.cache == 'true' }}
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          /tmp/bench-contract/gradle
+          /tmp/bench-contract/pub
+        key: ${{ runner.os }}-bench-${{ inputs.flutter }}-${{ inputs.dir }}-${{ steps.cache-key.outputs.hash }}
+        restore-keys: |
+          ${{ runner.os }}-bench-${{ inputs.flutter }}-
     - name: Bench-contract run
       shell: bash
       run: |
@@ -92,8 +127,17 @@ runs:
         if [ -n "${{ inputs.store }}" ]; then
           extra+=(--store "${{ inputs.store }}")
         fi
+        cache_args=()
+        if [ "${{ inputs.cache }}" = "true" ]; then
+          mkdir -p /tmp/bench-contract/gradle /tmp/bench-contract/pub
+          cache_args+=(
+            -v /tmp/bench-contract/gradle:/root/.gradle
+            -v /tmp/bench-contract/pub:/root/.pub-cache
+          )
+        fi
         docker run --rm \
           --device /dev/kvm \
+          "${cache_args[@]}" \
           -v "${GITHUB_WORKSPACE}":/workspace \
           -w "/workspace/${{ inputs.dir }}" \
           "$image" \
@@ -126,3 +170,30 @@ runs:
         fi
         git commit -m "bench: publish results (goldens + metrics card)"
         git push
+    # The container runs as root, so the mounted cache dirs become
+    # root-owned; hand them back to the runner user before saving. Only
+    # reports a key when a cache dir actually has content (a first run may
+    # have nothing to save yet).
+    - name: Fix cache ownership
+      id: cache-own
+      if: ${{ always() && inputs.cache == 'true' }}
+      shell: bash
+      run: |
+        has_content=0
+        for d in /tmp/bench-contract/gradle /tmp/bench-contract/pub; do
+          [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ] && has_content=1
+        done
+        if [ "$has_content" = "1" ]; then
+          sudo chown -R "$USER:$USER" /tmp/bench-contract 2>/dev/null || true
+          echo "cache-present=true" >> "$GITHUB_OUTPUT"
+        fi
+    # Save once per cache key: skip when this run already restored the exact
+    # key (cache entries are immutable — a same-key save would error).
+    - name: Save Gradle/pub cache
+      if: ${{ always() && inputs.cache == 'true' && steps.cache-own.outputs.cache-present == 'true' && steps.cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          /tmp/bench-contract/gradle
+          /tmp/bench-contract/pub
+        key: ${{ runner.os }}-bench-${{ inputs.flutter }}-${{ inputs.dir }}-${{ steps.cache-key.outputs.hash }}
