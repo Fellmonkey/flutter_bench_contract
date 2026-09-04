@@ -131,6 +131,22 @@ idleClasses: [MyController, MyRegistry]   # S1r per-class counting
   run: dart run flutter_bench_contract:contract run --mode check --ref android
 ```
 
+### CI in one line (device runs, optional)
+
+For consumers whose CI can run Docker with KVM (GitHub ubuntu runners), the
+runner image (`docker/`) does the whole device run — emulator boot included
+— so the gate is the action wrapper:
+
+```yaml
+- uses: Fellmonkey/flutter_bench_contract/action@v1
+  with:
+    flutter: '3.47'   # runner image tag = Flutter version of the goldens
+    mode: check
+    ref: android
+```
+
+Image build and digest-pinning details: `docker/README.md`.
+
 ## CLI
 
 `dart run flutter_bench_contract:contract <command>`

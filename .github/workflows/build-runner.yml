@@ -1,0 +1,77 @@
+name: build-runner
+
+# Builds and pushes the bench-contract-runner image (docker/) to GHCR under
+# ghcr.io/fellmonkey/bench-contract-runner:<flutter major.minor>. Publish
+# one image per Flutter version consumers record goldens on. The run summary
+# prints the image digest for the tag→digest pin maps.
+#
+# Dispatch manually (defaults: Flutter 3.47.0, Android API 36) or via a tag
+# push `runner-v<flutter-version>`.
+on:
+  workflow_dispatch:
+    inputs:
+      flutter-version:
+        description: 'Flutter version to bake in (e.g. 3.47.0)'
+        required: false
+        default: '3.47.0'
+      android-api:
+        description: 'Android API level of the system image'
+        required: false
+        default: '36'
+  push:
+    tags: ['runner-v*']
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derive image tag from the Flutter version
+        id: version
+        shell: bash
+        run: |
+          # Version source: the push tag runner-v<version> or the dispatch
+          # input (tag pushes cannot carry inputs).
+          case "${GITHUB_REF_NAME}" in
+            runner-v*) FLUTTER="${GITHUB_REF_NAME#runner-v}" ;;
+            *) FLUTTER="${{ github.event.inputs.flutter-version || '3.47.0' }}" ;;
+          esac
+          echo "flutter=$FLUTTER" >> "$GITHUB_OUTPUT"
+          # Image tag = major.minor (3.47) — the action's `flutter` input.
+          echo "tag=$(echo "$FLUTTER" | cut -d. -f1-2)" >> "$GITHUB_OUTPUT"
+          echo "api=${{ github.event.inputs.android-api || '36' }}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          push: true
+          tags: ghcr.io/fellmonkey/bench-contract-runner:${{ steps.version.outputs.tag }}
+          build-args: |
+            FLUTTER_VERSION=${{ steps.version.outputs.flutter }}
+            ANDROID_API=${{ steps.version.outputs.api }}
+      # The digest is the immutable pin consumers copy into their tag→digest
+      # maps (action/action.yml, their workflows).
+      - name: Publish digest
+        shell: bash
+        run: |
+          echo "Image digest: ${{ steps.build.outputs.digest }}"
+          {
+            echo "## Runner image published"
+            echo
+            echo '```'
+            echo "${{ steps.build.outputs.digest }}"
+            echo '```'
+            echo
+            echo 'Paste this digest into the tag→digest pin maps (action/action.yml and consumer workflows) to keep runs reproducible.'
+          } >> "$GITHUB_STEP_SUMMARY"

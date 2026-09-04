@@ -1,0 +1,86 @@
+name: 'bench-contract run'
+description: >-
+  Runs a flutter_bench_contract consumer's full contract in the
+  bench-contract-runner Docker image (device scenarios + size + card/readme)
+  in check or record mode. Requires /dev/kvm on the host (GitHub ubuntu
+  runners have it) and the runner image published (package workflow
+  .github/workflows/build-runner.yml). The image is pulled digest-pinned via
+  the tag→digest map below — update the map when you rebuild the image.
+inputs:
+  flutter:
+    description: >-
+      Flutter version selecting the runner image tag (major.minor, e.g.
+      '3.47'). Must match the Flutter version the goldens were recorded on.
+    required: false
+    default: '3.47'
+  mode:
+    description: 'check (default, gate against goldens) | record (write goldens)'
+    required: false
+    default: 'check'
+  ref:
+    description: 'Golden ref (e.g. android).'
+    required: false
+    default: 'android'
+  dir:
+    description: >-
+      Consumer root under the checked-out repo (where bench_contract.yaml
+      lives). Default: repo root.
+    required: false
+    default: '.'
+  legs:
+    description: >-
+      S7 size legs to run (native|web|both; default native — the web leg
+      stays in plain CI, where it does not need the emulator).
+    required: false
+    default: 'native'
+  scenarios:
+    description: 'Optional comma-separated scenario subset to run.'
+    required: false
+    default: ''
+  store:
+    description: >-
+      Optional golden-store path, relative to the consumer root (default:
+      benchmarks.json next to the manifest).
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Check KVM availability
+      shell: bash
+      run: |
+        if [ ! -e /dev/kvm ]; then
+          echo "::error::This job needs /dev/kvm (nested virtualization). GitHub ubuntu runners provide it; self-hosted runners must enable KVM."
+          exit 1
+        fi
+    # Tag → image digest pin. A rebuild of the same tag must not change a
+    # consumer's run silently: add/update the row here, then release a new
+    # action tag. The digest is printed by the build-runner workflow.
+    - name: Bench-contract run
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "${{ inputs.flutter }}" in
+          3.47) digest="sha256:REPLACE_AFTER_FIRST_BUILD" ;;
+          *) echo "::error::No digest pinned for Flutter ${{ inputs.flutter }} — add a row in action.yml (digest from the build-runner run summary)."
+             exit 1 ;;
+        esac
+        if [[ "$digest" == *REPLACE_* ]]; then
+          echo "::error::Runner image not built yet — run the build-runner workflow first, then paste its digest into action.yml."
+          exit 1
+        fi
+        image="ghcr.io/fellmonkey/bench-contract-runner:${{ inputs.flutter }}@${digest}"
+        extra=()
+        if [ -n "${{ inputs.scenarios }}" ]; then
+          extra+=(--scenarios "${{ inputs.scenarios }}")
+        fi
+        if [ -n "${{ inputs.store }}" ]; then
+          extra+=(--store "${{ inputs.store }}")
+        fi
+        docker run --rm \
+          --device /dev/kvm \
+          -v "${GITHUB_WORKSPACE}":/workspace \
+          -w "/workspace/${{ inputs.dir }}" \
+          "$image" \
+          ${{ inputs.mode }} --ref ${{ inputs.ref }} \
+          --legs ${{ inputs.legs }} "${extra[@]}"
