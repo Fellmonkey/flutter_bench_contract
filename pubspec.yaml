@@ -6,6 +6,7 @@ description: >-
   reusable package.
 version: 0.1.0
 
+repository: https://github.com/Fellmonkey/flutter_bench_contract
 topics:
   - benchmarking
   - performance
