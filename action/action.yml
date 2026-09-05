@@ -45,9 +45,10 @@ inputs:
     default: ''
   cache:
     description: >-
-      Cache the Gradle + pub caches across runs: host dirs mounted into the
-      container at ~/.gradle and ~/.pub-cache, so Android build dependencies
-      and the Gradle distribution are not re-downloaded on every dispatch.
+      Cache the Gradle + pub + NDK caches across runs: host dirs mounted
+      into the container at ~/.gradle, ~/.pub-cache and the SDK's ndk dir,
+      so Android build dependencies, the Gradle distribution and the NDK
+      are not re-downloaded on every dispatch.
     required: false
     default: 'true'
   comment:
@@ -127,6 +128,7 @@ runs:
         path: |
           /tmp/bench-contract/gradle
           /tmp/bench-contract/pub
+          /tmp/bench-contract/ndk
         key: ${{ runner.os }}-bench-${{ inputs.flutter }}-${{ inputs.dir }}-${{ steps.cache-key.outputs.hash }}
         restore-keys: |
           ${{ runner.os }}-bench-${{ inputs.flutter }}-
@@ -153,10 +155,11 @@ runs:
         fi
         cache_args=()
         if [ "${{ inputs.cache }}" = "true" ]; then
-          mkdir -p /tmp/bench-contract/gradle /tmp/bench-contract/pub
+          mkdir -p /tmp/bench-contract/gradle /tmp/bench-contract/pub /tmp/bench-contract/ndk
           cache_args+=(
             -v /tmp/bench-contract/gradle:/root/.gradle
             -v /tmp/bench-contract/pub:/root/.pub-cache
+            -v /tmp/bench-contract/ndk:/opt/android-sdk/ndk
           )
         fi
         docker run --rm \
@@ -204,7 +207,7 @@ runs:
       shell: bash
       run: |
         has_content=0
-        for d in /tmp/bench-contract/gradle /tmp/bench-contract/pub; do
+        for d in /tmp/bench-contract/gradle /tmp/bench-contract/pub /tmp/bench-contract/ndk; do
           [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ] && has_content=1
         done
         if [ "$has_content" = "1" ]; then
@@ -220,6 +223,7 @@ runs:
         path: |
           /tmp/bench-contract/gradle
           /tmp/bench-contract/pub
+          /tmp/bench-contract/ndk
         key: ${{ runner.os }}-bench-${{ inputs.flutter }}-${{ inputs.dir }}-${{ steps.cache-key.outputs.hash }}
     # Regression PR comment (opt-in `comment`): renders the machine-readable
     # check-report.json the CLI wrote during the check. PRs only; the comment
