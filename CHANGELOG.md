@@ -1,3 +1,14 @@
+## 0.4.0
+
+- **Charts + PR gate (big):** `contract run` → `build/benchmark-data.json`
+  (`charts.dart`, `customSmallerIsBetter`) + `build/check-report.json`
+  (`goldens.dart:MetricCheck`); `action.yml` `charts:` → gh-pages dashboard
+  (auto-push, `chartsUrl` → `readme.dart: Trend history`) + `comment:` → PR
+  regression table.
+- **S5/S6:** unphysical heap drift (`< −1 MiB`) after retries → `n/a`
+  (`status: unphysical`) not `FAIL`; `lib/scenarios.dart` docs trimmed.
+- **CI + cache:** `.github/workflows/ci.yml` + action cache Gradle/pub/NDK.
+
 ## 0.3.4
 
 - **pub.dev score fixes.** Description trimmed to 125 chars; `example/README.md` added
