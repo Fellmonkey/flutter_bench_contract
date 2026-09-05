@@ -229,7 +229,7 @@ runs:
     # check-report.json the CLI wrote during the check. PRs only; the comment
     # is upserted on a marker anchor (no duplicates across runs).
     - name: Comment regressions on PR
-      if: ${{ inputs.comment == 'true' && inputs.mode == 'check' && github.event_name == 'pull_request' }}
+      if: ${{ always() && inputs.comment == 'true' && inputs.mode == 'check' && github.event_name == 'pull_request' }}
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -237,6 +237,10 @@ runs:
       run: |
         set -euo pipefail
         [ -f "$REPORT" ] || { echo "::warning::check-report.json not found — nothing to comment"; exit 0; }
+        marker='<!-- bench-contract:regression -->'
+        pr="${{ github.event.pull_request.number }}"
+        comments="repos/${{ github.repository }}/issues/$pr/comments"
+        existing="$(gh api "$comments" --jq '.[] | select(.body | contains("'$marker'")) | .id' | tail -1)"
         BODY="$(python3 - "$REPORT" <<'PY'
         import json, sys
         d = json.load(open(sys.argv[1]))
@@ -251,11 +255,15 @@ runs:
         print('\n'.join(out))
         PY
         )"
-        [ -n "$BODY" ] || { echo "bench-contract: no regressions — no comment"; exit 0; }
-        marker='<!-- bench-contract:regression -->'
-        pr="${{ github.event.pull_request.number }}"
-        comments="repos/${{ github.repository }}/issues/$pr/comments"
-        existing="$(gh api "$comments" --jq '.[] | select(.body | contains("'$marker'")) | .id' | tail -1)"
+        if [ -z "$BODY" ]; then
+          if [ -n "$existing" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$existing" -X DELETE >/dev/null 2>&1 || gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f "body=✅ Performance gate passed — no regressions\n$marker" >/dev/null
+            echo "bench-contract: cleared regression comment on PR #$pr (no regressions)"
+          else
+            echo "bench-contract: no regressions — no comment"
+          fi
+          exit 0
+        fi
         body="$BODY
         $marker"
         if [ -n "$existing" ]; then
