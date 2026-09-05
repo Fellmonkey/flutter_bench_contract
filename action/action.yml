@@ -240,7 +240,7 @@ runs:
         marker='<!-- bench-contract:regression -->'
         pr="${{ github.event.pull_request.number }}"
         comments="repos/${{ github.repository }}/issues/$pr/comments"
-        existing="$(gh api "$comments" --jq '.[] | select(.body | contains("'$marker'")) | .id' | tail -1)"
+        existing="$(gh api "$comments" | jq -r --arg marker "$marker" '.[] | select(.body | contains($marker)) | .id' | tail -1)"
         BODY="$(python3 - "$REPORT" <<'PY'
         import json, sys
         d = json.load(open(sys.argv[1]))
