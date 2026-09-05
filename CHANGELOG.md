@@ -1,3 +1,12 @@
+## 0.4.1
+
+- **Hardware-pinned runner + heap quiesce before S5/S6:** `docker/Dockerfile`
+  `AVD 4c/4 GB/512 MB` + `entrypoint.sh` `-memory 4096 -cores 4` + post-boot
+  `animator 0 / trim-caches / 10s quiesce`; `lib/scenarios.dart`
+  `_stabilizeHeap 5× range<512 KiB` before cycles + symmetric guard
+  `S5 ±4 MiB / S6 ±1 MiB` → `n/a (unphysical)` not `FAIL` — `+3.4 MB/-10 MB`
+  floor jumps no longer become goldens.
+
 ## 0.4.0
 
 - **Charts + PR gate (big):** `contract run` → `build/benchmark-data.json`

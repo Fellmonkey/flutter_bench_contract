@@ -52,6 +52,48 @@ const int _kHeapAttempts = 3;
 /// cannot release MB — the heap floor moved (GC), not retention.
 const int _kUnphysicalDriftBytes = -(1 << 20); // -1 MiB
 
+/// Above this per-cycle delta the sample is unphysical (positive floor
+/// jump). S5 can legitimately be hundreds of KB; 4 MiB is the absolute
+/// ceiling — a `ContractCard` show never costs MB in Dart heap. S6
+/// hide_retention should be ~0, so +1 MiB is already unphysical.
+const int _kUnphysicalUpperS5 = 4 << 20; // +4 MiB
+const int _kUnphysicalUpperS6 = 1 << 20; // +1 MiB
+
+/// Samples and range for the pre-measurement floor-stabilization gate.
+const int _kHeapStabilizeSamples = 5;
+const int _kHeapStabilizeRange = 512 * 1024; // 512 KiB
+const int _kHeapStabilizeAttempts = 3;
+
+/// True if [delta] is outside the physical envelope. Uses absolute
+/// bounds: `delta < -1 MiB` or `delta > upper`. Adaptive `golden*3+MAD`
+/// is intentionally not in-scenario (no golden here) — stabilization
+/// before measurement does the heavy lifting; the guard is only the
+/// last defence against a mid-cycle floor jump.
+bool _isUnphysical(int delta, int upper) =>
+    delta < _kUnphysicalDriftBytes || delta > upper;
+
+/// Floor-stabilization gate: sample the heap `5×` with forced GC and
+/// require `max-min < 512 KiB`. Catches a settling floor *before*
+/// measured cycles start, so `+3.4 MB` / `-10 MB` hallucinations rarely
+/// reach the per-cycle baseline at all. Best-effort — no VM service → no-op.
+Future<void> _stabilizeHeap(WidgetTester tester, VmServiceHeap? heap) async {
+  if (heap == null) return;
+  for (var attempt = 0; attempt < _kHeapStabilizeAttempts; attempt++) {
+    final samples = <int>[];
+    for (var i = 0; i < _kHeapStabilizeSamples; i++) {
+      final v = await heap.usedBytesMedian();
+      if (v == null) return;
+      samples.add(v);
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    samples.sort();
+    final range = samples.last - samples.first;
+    if (range < _kHeapStabilizeRange) return;
+    await tester.pumpAndSettle();
+    await heap.usedBytes(); // one extra GC probe to let late GC land
+  }
+}
+
 /// Registers the test body of contract scenario [scenarioId] with
 /// [driver]. Called synchronously from a generated bridge's `main()` —
 /// exactly one scenario per process.
@@ -505,6 +547,7 @@ void _s5ActiveHeap(LibraryDriver driver) {
     // the FakeAsync zone of a plain `flutter test` run (it would hang the
     // host); real-async contexts (device, integration binding) are unaffected.
     final heap = await tester.runAsync(VmServiceHeap.connect);
+    await _stabilizeHeap(tester, heap);
 
     // Per-cycle idle baseline (median of 3 GC reads) before each show;
     // cancels a settling floor. On unphysical delta retry with GC settle
@@ -538,7 +581,7 @@ void _s5ActiveHeap(LibraryDriver driver) {
           : (deltas.reduce((a, b) => a + b) / deltas.length).round();
       // Accept a null (no VM service — degraded) or a physical delta; retry
       // only an unphysical one, while attempts remain.
-      if (delta == null || delta >= _kUnphysicalDriftBytes) break;
+      if (delta == null || !_isUnphysical(delta, _kUnphysicalUpperS5)) break;
       if (attempt == _kHeapAttempts - 1) break; // exhausted — guard below fires
       // ignore: avoid_print
       print('S5: attempt ${attempt + 1}/$_kHeapAttempts unphysical '
@@ -548,8 +591,9 @@ void _s5ActiveHeap(LibraryDriver driver) {
     }
 
     // Unphysical on every attempt — measurement defect, not retention.
-    // Degrade gracefully (n/a) instead of failing.
-    if (delta != null && delta < _kUnphysicalDriftBytes) {
+    // Degrade gracefully (n/a) instead of failing. Symmetric guard:
+    // negative (<-1 MiB) or positive (>+4 MiB) floor jump.
+    if (delta != null && _isUnphysical(delta, _kUnphysicalUpperS5)) {
       final top =
           heap == null ? const <(String, int)>[] : await heap.topClasses();
       final topDesc = top.isEmpty
@@ -619,6 +663,7 @@ void _s6HideRetention(LibraryDriver driver) {
     // the FakeAsync zone of a plain `flutter test` run (it would hang the
     // host); real-async contexts (device, integration binding) are unaffected.
     final heap = await tester.runAsync(VmServiceHeap.connect);
+    await _stabilizeHeap(tester, heap);
 
     // Per-cycle idle baseline (median of 3 GC reads) before each show;
     // cancels a settling floor. On unphysical drift retry with GC settle
@@ -649,7 +694,7 @@ void _s6HideRetention(LibraryDriver driver) {
           : (drifts.reduce((a, b) => a + b) / drifts.length).round();
       // Accept a null (no VM service — degraded) or a physical drift; retry
       // only an unphysical one, while attempts remain.
-      if (d == null || d >= _kUnphysicalDriftBytes) break;
+      if (d == null || !_isUnphysical(d, _kUnphysicalUpperS6)) break;
       if (attempt == _kHeapAttempts - 1) break; // exhausted — guard below fires
       // ignore: avoid_print
       print('S6: attempt ${attempt + 1}/$_kHeapAttempts unphysical '
@@ -677,8 +722,8 @@ void _s6HideRetention(LibraryDriver driver) {
         : (drifts.reduce((a, b) => a + b) / drifts.length).round();
 
     // Unphysical on every attempt — measurement defect, not retention.
-    // Degrade gracefully (n/a) instead of failing.
-    if (driftAvg != null && driftAvg < _kUnphysicalDriftBytes) {
+    // Degrade gracefully (n/a) instead of failing. Symmetric: ±1 MiB.
+    if (driftAvg != null && _isUnphysical(driftAvg, _kUnphysicalUpperS6)) {
       final top = heap == null ? const <(String, int)>[] : await heap.topClasses();
       final topDesc = top.isEmpty
           ? '(no VM profile)'

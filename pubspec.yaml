@@ -2,7 +2,7 @@ name: flutter_bench_contract
 description: >-
   Device performance scenarios and a regression golden gate for Flutter
   overlay and widget solutions — as a reusable package.
-version: 0.4.0
+version: 0.4.1
 
 repository: https://github.com/Fellmonkey/flutter_bench_contract
 topics:
