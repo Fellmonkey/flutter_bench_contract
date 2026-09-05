@@ -50,9 +50,11 @@ cleanup() {
 trap cleanup EXIT
 "${ANDROID_HOME:-/opt/android-sdk}/emulator/emulator" \
   -avd contract \
-  -no-window -no-audio -no-boot-anim -no-snapshot \
+  -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-load -no-snapshot-save \
   -gpu swiftshader_indirect \
   -accel auto \
+  -memory 4096 -cores 4 \
+  -no-metrics \
   >/dev/null 2>&1 &
 EMULATOR_PID=$!
 
@@ -75,7 +77,26 @@ if [ "$booted" != "1" ]; then
   exit 1
 fi
 adb shell input keyevent 82 >/dev/null 2>&1 || true # dismiss the lock screen
-echo "bench-contract: emulator booted ($MODE, ref=$REF)"
+
+# -- Hardware/OS stabilization (post-boot quiesce — before contract).
+# Reduces wall/heap variance on shared runners: animations off, stay awake,
+# trim caches, wait for system to settle. This is the "before test" gate
+# from the plan — catches floor drift before per-cycle baseline does.
+adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
+adb shell settings put global transition_animation_scale 0 >/dev/null 2>&1 || true
+adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
+adb shell svc power stayon true >/dev/null 2>&1 || true
+adb shell pm trim-caches 999999999 >/dev/null 2>&1 || true
+# Let the system quiesce after boot and after trimming — 10s is enough for
+# background dexopt and GC to land, but short enough not to bloat CI (20 min cap).
+sleep 10
+adb shell dumpsys procstats --reset >/dev/null 2>&1 || true
+# Ensure package manager is idle before flutter pub get / drive
+for _ in $(seq 1 12); do
+  if adb shell pm list packages >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+echo "bench-contract: emulator booted + quiesced ($MODE, ref=$REF)"
 
 # -- The whole contract: device scenarios + the S7 size legs (default
 # native — host build inside the container; the web leg stays in plain CI).

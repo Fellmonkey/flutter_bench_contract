@@ -84,11 +84,18 @@ RUN sdkmanager \
 
 # Precreated AVD — built once, so every run starts from the same disk image
 # state; medium_phone approximates the reference hardware goldens use.
+# Hardware is pinned for determinism: 4 cores / 4 GB / 512 MB heap — the
+# contract's goldens were recorded on this shape; a different shape would
+# shift heap floor and wall noise. Snapshot is disabled (cold boot every run).
 RUN echo "no" | avdmanager create avd \
       -n contract \
       -k "system-images;android-${ANDROID_API};google_apis;x86_64" \
       --device medium_phone \
-      --force
+      --force \
+ && printf "\nhw.cpu.ncore=4\nhw.ramSize=4096\nhw.heapSize=512\ndisk.dataPartition.size=4096M\nhw.gpu.enabled=no\n" \
+      >> /root/.android/avd/contract.avd/config.ini \
+ && printf "hw.initialOrientation=Portrait\nskin.name=1080x2400\n" \
+      >> /root/.android/avd/contract.avd/config.ini || true
 
 # Entrypoint: `bench-contract <check|record> [--ref ...]`.
 COPY entrypoint.sh /usr/local/bin/bench-contract
